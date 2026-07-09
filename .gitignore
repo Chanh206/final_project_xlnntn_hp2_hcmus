@@ -14,11 +14,5 @@ __pycache__/
 # Jupyter
 .ipynb_checkpoints/
 
-# Data (ảnh input & output không đẩy lên git, chỉ giữ cấu trúc thư mục)
-data/input/*
-data/output/*
-!data/input/.gitkeep
-!data/output/.gitkeep
-
 # macOS
 .DS_Store
