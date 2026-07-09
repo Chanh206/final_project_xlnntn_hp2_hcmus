@@ -41,8 +41,8 @@ load_dotenv()
 
 # Model gọi qua API tương thích OpenAI (proxy bên thứ 3). Điền vào .env, không hardcode.
 OCR_API_KEY      = os.environ.get("OCR_API_KEY", "")
-OCR_BASE_URL     = os.environ.get("OCR_BASE_URL", "https://api.xah.io/v1/chat/completions")
-OCR_MODEL        = os.environ.get("OCR_MODEL", "gemini-3.1-flash-image")
+OCR_BASE_URL     = os.environ.get("OCR_BASE_URL", "")
+OCR_MODEL        = os.environ.get("OCR_MODEL", "")
 DRIVE_FOLDER_ID  = "1CPsUmuRAet7vxNFQ1E9YPcLfliYSUm5l" # ID folder chứa ảnh trên Drive
 SHEET_ID         = "1vsVsEcR1h7Umy3wA4hEsP2snXiWAxm7RWDiZS5PsJi0"        # ID Google Sheet (từ URL)
 SHEET_TAB_NAME   = "manage"                      # Tên tab trong Sheet
@@ -51,7 +51,6 @@ SHEET_TAB_NAME   = "manage"                      # Tên tab trong Sheet
 OAUTH_CLIENT_FILE = "client_secret.json"
 TOKEN_FILE        = "token.json"
 
-# Free tier: 15 RPM → sleep 4s mỗi request (chỉnh theo hạn mức thực tế của bạn tại
 # https://ai.google.dev/gemini-api/docs/rate-limits)
 SLEEP_BETWEEN_REQUESTS = 4
 MAX_RETRIES            = 5
