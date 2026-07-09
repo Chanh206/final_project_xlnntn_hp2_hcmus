@@ -6,7 +6,7 @@ Hỗ trợ resume: tự động bỏ qua ảnh đã xử lý
 
 Yêu cầu:
   pip3 install google-auth google-auth-oauthlib google-auth-httplib2
-               google-api-python-client gspread google-genai
+               google-api-python-client gspread openai python-dotenv
 
 Cách dùng:
   1. Chạy lần đầu để setup OAuth: python3 han_nom_ocr.py --setup
@@ -14,16 +14,18 @@ Cách dùng:
 """
 
 import io
+import os
 import sys
 import time
 import json
 import re
+import base64
 import argparse
 import logging
 from pathlib import Path
 
-from google import genai
-from google.genai import types
+from dotenv import load_dotenv
+from openai import OpenAI
 import gspread
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -31,20 +33,26 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
+load_dotenv()
+
 # ─────────────────────────────────────────────
 #  CẤU HÌNH — chỉnh sửa phần này
 # ─────────────────────────────────────────────
 
-GEMINI_API_KEY   = ""        # Lấy từ https://aistudio.google.com/app/apikey
-DRIVE_FOLDER_ID  = "1" # ID folder chứa ảnh trên Drive
-SHEET_ID         = ""        # ID Google Sheet (từ URL)
+# Model gọi qua API tương thích OpenAI (proxy bên thứ 3). Điền vào .env, không hardcode.
+OCR_API_KEY      = os.environ.get("OCR_API_KEY", "")
+OCR_BASE_URL     = os.environ.get("OCR_BASE_URL", "https://api.xah.io/v1/chat/completions")
+OCR_MODEL        = os.environ.get("OCR_MODEL", "gemini-3.1-flash-image")
+DRIVE_FOLDER_ID  = "1CPsUmuRAet7vxNFQ1E9YPcLfliYSUm5l" # ID folder chứa ảnh trên Drive
+SHEET_ID         = "1vsVsEcR1h7Umy3wA4hEsP2snXiWAxm7RWDiZS5PsJi0"        # ID Google Sheet (từ URL)
 SHEET_TAB_NAME   = "manage"                      # Tên tab trong Sheet
 
 # Tên file credentials OAuth2 tải về từ Google Cloud Console
 OAUTH_CLIENT_FILE = "client_secret.json"
 TOKEN_FILE        = "token.json"
 
-# Free tier: 15 RPM → sleep 4s mỗi request
+# Free tier: 15 RPM → sleep 4s mỗi request (chỉnh theo hạn mức thực tế của bạn tại
+# https://ai.google.dev/gemini-api/docs/rate-limits)
 SLEEP_BETWEEN_REQUESTS = 4
 MAX_RETRIES            = 5
 
@@ -191,7 +199,7 @@ def download_image_bytes(drive_service, file_id):
     return buf.getvalue()
 
 # ─────────────────────────────────────────────
-#  GEMINI OCR (dùng google-genai mới)
+#  OCR (gọi model qua API tương thích OpenAI)
 # ─────────────────────────────────────────────
 
 PROMPT = """Đây là ảnh chứa chữ Hán Nôm (chữ Nôm Việt cổ hoặc chữ Hán).
@@ -206,15 +214,21 @@ Confidence từ 0-100: 90+ rõ ràng, 70-89 khá chắc, 50-69 không chắc, d�
 
 
 def detect_characters(client, image_bytes, mime_type="image/jpeg"):
-    """Gửi ảnh vào Gemini, trả về dict {characters, confidence, note}."""
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[
-            types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-            PROMPT,
+    """Gửi ảnh vào model qua API tương thích OpenAI, trả về dict {characters, confidence, note}."""
+    b64_image = base64.b64encode(image_bytes).decode("utf-8")
+    response = client.chat.completions.create(
+        model=OCR_MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": PROMPT},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_image}"}},
+                ],
+            }
         ],
     )
-    raw = response.text.strip()
+    raw = response.choices[0].message.content.strip()
 
     # Bóc JSON ra dù Gemini có wrap markdown hay không
     json_match = re.search(r"\{.*\}", raw, re.DOTALL)
@@ -237,8 +251,17 @@ def error_result(msg):
     return {"characters": "", "confidence": 0, "note": msg, "error": msg}
 
 
+class DailyQuotaExceeded(Exception):
+    """Hết hạn mức theo ngày — retry trong cùng lần chạy sẽ vô ích."""
+
+
 def detect_with_retry(client, image_bytes, mime_type, file_name):
-    """Gọi Gemini với exponential backoff khi gặp rate limit."""
+    """Gọi Gemini với exponential backoff khi gặp rate limit theo phút.
+
+    Nếu lỗi là hết quota theo NGÀY (không phải theo phút), retry ngay sẽ luôn
+    thất bại nên raise DailyQuotaExceeded để dừng cả batch, thay vì lãng phí
+    5 lần retry (tối đa ~120s/lần) cho từng ảnh còn lại rồi đánh dấu nhầm là lỗi vĩnh viễn.
+    """
     wait = 10
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -246,6 +269,8 @@ def detect_with_retry(client, image_bytes, mime_type, file_name):
         except Exception as e:
             err_str = str(e).lower()
             if "429" in err_str or "resource_exhausted" in err_str:
+                if "perday" in err_str.replace(" ", "") or "daily" in err_str:
+                    raise DailyQuotaExceeded(str(e)) from e
                 if attempt < MAX_RETRIES:
                     log.warning(f"Rate limit ({file_name}), chờ {wait}s... ({attempt}/{MAX_RETRIES})")
                     time.sleep(wait)
@@ -314,14 +339,14 @@ def write_result(worksheet, file_name, drive_url, result_dict, status="success")
 #  MAIN PIPELINE
 # ─────────────────────────────────────────────
 
-def run_ocr():
-    if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY":
-        log.error("Chưa điền GEMINI_API_KEY trong script!")
+def run_ocr(limit=None):
+    if not OCR_API_KEY:
+        log.error("Chưa điền OCR_API_KEY trong file .env (cp .env.example .env rồi điền key).")
         sys.exit(1)
 
-    # 1. Khởi tạo Gemini client mới
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    log.info("Khởi tạo Gemini client thành công.")
+    # 1. Khởi tạo client (API tương thích OpenAI, trỏ tới OCR_BASE_URL)
+    client = OpenAI(base_url=OCR_BASE_URL, api_key=OCR_API_KEY)
+    log.info(f"Khởi tạo OCR client thành công (model={OCR_MODEL}, base_url={OCR_BASE_URL}).")
 
     # 2. Google OAuth
     creds = get_google_credentials()
@@ -349,6 +374,10 @@ def run_ocr():
         log.info("Tất cả ảnh đã được xử lý.")
         return
 
+    if limit is not None:
+        log.info(f"Giới hạn --limit={limit}: chỉ xử lý {min(limit, len(pending))}/{len(pending)} ảnh lần này.")
+        pending = pending[:limit]
+
     # 6. Vòng lặp chính
     success_count = error_count = 0
 
@@ -370,7 +399,14 @@ def run_ocr():
             error_count += 1
             continue
 
-        result = detect_with_retry(client, image_bytes, mime_type, file_name)
+        try:
+            result = detect_with_retry(client, image_bytes, mime_type, file_name)
+        except DailyQuotaExceeded as e:
+            log.error(f"Đã hết hạn mức Gemini theo NGÀY: {e}")
+            log.error(f"Dừng lại — '{file_name}' và {len(pending) - idx + 1} ảnh còn lại "
+                      f"CHƯA được ghi vào Sheet nên vẫn ở trạng thái pending, chạy lại script "
+                      f"vào ngày mai (hoặc khi hạn mức reset) để tiếp tục.")
+            break
 
         if result.get("error"):
             write_result(worksheet, file_name, drive_url, result, status=result["error"])
@@ -396,6 +432,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Han Nom OCR Pipeline")
     parser.add_argument("--setup", action="store_true",
                         help="Chỉ đăng nhập OAuth, không chạy OCR")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Giới hạn số ảnh xử lý trong lần chạy này (để tránh vượt hạn mức free tier/ngày)")
     args = parser.parse_args()
 
     if args.setup:
@@ -403,4 +441,4 @@ if __name__ == "__main__":
         get_google_credentials()
         log.info("Setup hoàn tất! Chạy lại không có --setup để bắt đầu OCR.")
     else:
-        run_ocr()
+        run_ocr(limit=args.limit)

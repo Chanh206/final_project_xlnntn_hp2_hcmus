@@ -1,0 +1,53 @@
+# ============================================================
+# requirements.txt — HVH Image Pipeline
+# Mac M-series (ARM64) compatible
+# ============================================================
+
+# ── Jupyter ──────────────────────────────────────────────────
+jupyterlab>=4.0.0
+ipywidgets>=8.0.0
+tqdm>=4.65.0
+
+# ── Image Processing & OCR ───────────────────────────────────
+Pillow>=10.0.0
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+
+# PaddleOCR — OCR chữ Hán cổ (hỗ trợ ARM64)
+# Dùng paddlepaddle CPU (stable trên Mac M-series)
+paddlepaddle==2.6.1; platform_machine != "arm64"
+paddlepaddle==2.6.1; platform_machine == "arm64"
+paddleocr>=2.7.0
+
+# ── NLP - Chữ Hán ────────────────────────────────────────────
+# HanLP: tách câu + NER chữ Hán (hỗ trợ văn ngôn/cổ văn)
+hanlp>=2.1.0
+
+# PyTorch CPU (cho HanLP transformer models)
+# ARM64 Mac: dùng bản CPU, MPS không support trong Docker
+torch>=2.0.0 --index-url https://download.pytorch.org/whl/cpu
+transformers>=4.35.0
+sentencepiece>=0.1.99
+
+# ── LLM API (OCR hiệu đính + NER backup) ────────────────────
+openai>=1.10.0            # DeepSeek / GPT compatible
+google-generativeai>=0.4.0
+anthropic>=0.20.0
+
+# ── Han-Nom OCR pipeline (Vision qua API tương thích OpenAI + Google Drive/Sheets) ─
+google-auth>=2.25.0
+google-auth-oauthlib>=1.2.0
+google-api-python-client>=2.110.0
+gspread>=6.0.0
+
+# ── Data I/O ─────────────────────────────────────────────────
+pandas>=2.0.0
+openpyxl>=3.1.0
+jsonlines>=3.1.0
+
+# ── Utilities ────────────────────────────────────────────────
+python-dotenv>=1.0.0
+requests>=2.31.0
+tenacity>=8.2.0           # auto-retry cho API
+loguru>=0.7.0
+rich>=13.0.0
