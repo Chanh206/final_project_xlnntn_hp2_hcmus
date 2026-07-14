@@ -1,0 +1,33 @@
+work_id,chapter_id,title_han,title_vietnamese,source_volume_id,source_code,source_url,image_count,legacy_folder
+HVH_001,HVH_001_01,愛州和正先生錄,Ái Châu Hoà Chính tiên sinh lục,660,NLVNPF-0501,https://lib.nomfoundation.org/collection/1/volume/660/page/1,48,HVH_001
+HVH_002,HVH_002_01,安南地搞記,An Nam địa cảo ký,661,NLVNPF-0503,https://lib.nomfoundation.org/collection/1/volume/661/page/1,60,HVH_002
+HVH_003,HVH_003_01,安南地理搞,An Nam địa lý cảo,662,NLVNPF-0504,https://lib.nomfoundation.org/collection/1/volume/662/page/1,52,HVH_003
+HVH_004,HVH_004_01,安南一統志,An Nam nhất thống chí,664,NLVNPF-0506,https://lib.nomfoundation.org/collection/1/volume/664/page/1,107,HVH_004
+HVH_005,HVH_005_01,安南初學史,An Nam sơ học sử,665,NLVNPF-0507,https://lib.nomfoundation.org/collection/1/volume/665/page/1,46,HVH_005
+HVH_006,HVH_006_01,幼學國史五言詩,Ấu học quốc sử ngũ ngôn thi,1157,NLVNPF-1031,https://lib.nomfoundation.org/collection/1/volume/1157/page/1,15,HVH_006
+HVH_007,HVH_007_01,白馬大王事跡,Bạch Mã đại vương sự tích,1416,NLVNPF-0514,https://lib.nomfoundation.org/collection/1/volume/1416/page/1,19,HVH_007
+HVH_008,HVH_008_01,白雲庵居士阮文達譜記,Bạch Vân Am cư sĩ Nguyễn Văn Đạt phả ký,84,NLVNPF-0081,https://lib.nomfoundation.org/collection/1/volume/84/page/1,47,HVH_008
+HVH_009,HVH_009_01,白雲庵先生,Bạch Vân am tiên sinh,85,NLVNPF-0082,https://lib.nomfoundation.org/collection/1/volume/85/page/1,75,HVH_009
+HVH_010,HVH_010_01,阮族家譜,Nguyễn tộc gia phả,855,NLVNPF-0686,https://lib.nomfoundation.org/collection/1/volume/855/page/1,101,HVH_010
+HVH_011,HVH_011_01,保胎神效全書觧音,Bảo thai thần hiệu toàn thư giải âm,680,NLVNPF-0520,https://lib.nomfoundation.org/collection/1/volume/680/page/1,24,HVH_011
+HVH_012,HVH_012_01,八陣全書,Bát trận toàn thư,1082,NLVNPF-0871,https://lib.nomfoundation.org/collection/1/volume/1082/page/1,42,HVH_012
+HVH_013,HVH_013_01,北寧省督學武魯庵,Bắc Ninh tỉnh đốc học Vũ Lỗ Am,682,NLVNPF-0522,https://lib.nomfoundation.org/collection/1/volume/682/page/1,130,HVH_013
+HVH_014,HVH_014_01,改良蒙學國史教科書,Cải lương mông học quốc sử giáo khoa thư,687,NLVNPF-0527,https://lib.nomfoundation.org/collection/1/volume/687/page/1,43,HVH_014
+HVH_015,HVH_015_01,高駢奏書地稿,Cao Biền tấu thư địa cảo,692,NLVNPF-0531,https://lib.nomfoundation.org/collection/1/volume/692/page/1,35,HVH_015
+HVH_016,HVH_016_01,真定縣訓導武文奉寄詩,Chân Định huyện huấn đạo Vũ Văn Phụng ký thi,698,NLVNPF-0538,https://lib.nomfoundation.org/collection/1/volume/698/page/1,65,HVH_016
+HVH_017,HVH_017_01,真福元國公傳,Chân Phúc Nguyên quốc công truyện,699,NLVNPF-0539,https://lib.nomfoundation.org/collection/1/volume/699/page/1,29,HVH_017
+HVH_018,HVH_018_01,制藝精華,Chế nghệ tinh hoa (q.01),703,NLVNPF-0544-01,https://lib.nomfoundation.org/collection/1/volume/703/page/1,75,HVH_018
+HVH_018,HVH_018_02,制藝精華,Chế nghệ tinh hoa (q.02),704,NLVNPF-0544-02,https://lib.nomfoundation.org/collection/1/volume/704/page/1,79,HVH_019
+HVH_018,HVH_018_03,制藝精華,Chế nghệ tinh hoa (q.03),705,NLVNPF-0544-03,https://lib.nomfoundation.org/collection/1/volume/705/page/1,101,HVH_020
+HVH_018,HVH_018_04,制藝精華,Chế nghệ tinh hoa (q.04),706,NLVNPF-0544-04,https://lib.nomfoundation.org/collection/1/volume/706/page/1,87,HVH_021
+HVH_018,HVH_018_05,制藝精華,Chế nghệ tinh hoa (q.05),707,NLVNPF-0544-05,https://lib.nomfoundation.org/collection/1/volume/707/page/1,65,HVH_022
+HVH_018,HVH_018_06,制藝精華,Chế nghệ tinh hoa (q.06),708,NLVNPF-0544-06,https://lib.nomfoundation.org/collection/1/volume/708/page/1,79,HVH_023
+HVH_019,HVH_019_01,至靈縣先賢事跡,Chí Linh huyện tiên hiền sự tích,709,NLVNPF-0545,https://lib.nomfoundation.org/collection/1/volume/709/page/1,97,HVH_024
+HVH_020,HVH_020_01,戰古堂,Chiến cổ đường,1151,NLVNPF-1015,https://lib.nomfoundation.org/collection/1/volume/1151/page/1,32,HVH_025
+HVH_021,HVH_021_01,昭琥先生撰史儀義,Chiêu Hổ tiên sinh soạn sử nghi nghĩa,701,NLVNPF-0541,https://lib.nomfoundation.org/collection/1/volume/701/page/1,64,HVH_026
+HVH_022,HVH_022_01,朱族家譜,Chu tộc gia phả,147,NLVNPF-0130,https://lib.nomfoundation.org/collection/1/volume/147/page/1,58,HVH_027
+HVH_023,HVH_023_01,[周族后忌],[Chu tộc hậu kỵ],716,NLVNPF-0553,https://lib.nomfoundation.org/collection/1/volume/716/page/1,37,HVH_028
+HVH_024,HVH_024_02,古今傳錄,Cổ kim truyền lục (q.02),722,NLVNPF-0558-02,https://lib.nomfoundation.org/collection/1/volume/722/page/1,54,HVH_029
+HVH_025,HVH_025_01,鼓舞兑甲券例,Cổ vũ Đoài giáp khoán lệ,926,NLVNPF-0743,https://lib.nomfoundation.org/collection/1/volume/926/page/1,12,HVH_030
+HVH_026,HVH_026_01,功過格校編,Công quá cách hiệu biên,928,NLVNPF-0745,https://lib.nomfoundation.org/collection/1/volume/928/page/1,140,HVH_031
+HVH_027,HVH_027_01,公直大夫傳,Công trực đại phu truyện,929,NLVNPF-0746,https://lib.nomfoundation.org/collection/1/volume/929/page/1,76,HVH_032
