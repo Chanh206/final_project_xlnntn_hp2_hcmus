@@ -81,6 +81,15 @@ def parse_args() -> argparse.Namespace:
         default=125,
         help="Ngưỡng saturation HSV để nhận dấu đỏ (mặc định: 125)",
     )
+    parser.add_argument(
+        "--max-blank-ratio",
+        type=float,
+        default=0.10,
+        help=(
+            "Tỷ lệ trang BLANK tối đa được phép trước khi tạo output "
+            "(0-1, mặc định: 0.10 tương ứng 10%%)"
+        ),
+    )
     parser.add_argument("--allow-incomplete", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
@@ -88,6 +97,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--id phải có dạng HVH_NNN")
     if not CHAPTER_RE.fullmatch(args.chapter):
         parser.error("--chapter phải có hai chữ số")
+    if not 0 <= args.max_blank_ratio <= 1:
+        parser.error("--max-blank-ratio phải nằm trong khoảng 0 đến 1")
     return args
 
 
@@ -441,6 +452,21 @@ def main() -> int:
         print(f"LỖI: {exc}", file=sys.stderr)
         return 1
 
+    blank_count = sum(result.get("status") == "blank" for result in results)
+    blank_ratio = blank_count / len(expected_stems) if expected_stems else 0.0
+    if blank_ratio > args.max_blank_ratio:
+        print(
+            "LỖI: Không tạo output vì tỷ lệ BLANK "
+            f"{blank_count}/{len(expected_stems)} = {blank_ratio:.2%}, "
+            f"vượt ngưỡng {args.max_blank_ratio:.2%}.",
+            file=sys.stderr,
+        )
+        print(
+            "Hãy kiểm tra cấu hình OCR, chạy lại các trang BLANK rồi mới chạy bước 6.",
+            file=sys.stderr,
+        )
+        return 1
+
     output_dir = Path(args.output_root) / args.id / chapter_id
     raw_path = output_dir / f"{chapter_id}_raw.txt"
     seg_path = output_dir / f"{chapter_id}_seg.tsv"
@@ -509,6 +535,8 @@ def main() -> int:
         "expected_processed_pages": len(expected_stems),
         "used_processed_pages": len(results),
         "blank_pages": [result["stem"] for result in results if result.get("status") == "blank"],
+        "blank_ratio": round(blank_ratio, 6),
+        "max_blank_ratio": args.max_blank_ratio,
         "problems": problems,
         "raw_path": raw_path.as_posix(),
         "seg_path": seg_path.as_posix(),

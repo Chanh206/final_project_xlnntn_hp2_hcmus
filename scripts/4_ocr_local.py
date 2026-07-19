@@ -65,6 +65,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--engine", choices=("paddle", "api"), default="paddle")
     parser.add_argument("--source", choices=("original", "processed", "both"), default="both")
     parser.add_argument("--limit", type=int, help="Số scan gốc dùng cho pilot")
+    parser.add_argument(
+        "--shard-count", type=int, default=1,
+        help="Chia task thành N shard độc lập để OCR song song (mặc định: 1)",
+    )
+    parser.add_argument(
+        "--shard-index", type=int, default=0,
+        help="Shard cần chạy, đánh số từ 0 (mặc định: 0)",
+    )
     parser.add_argument("--catalog", default="configs/corpus_catalog.csv")
     parser.add_argument("--input-root", default="data/input")
     parser.add_argument("--processed-root", default="data/processed")
@@ -101,6 +109,10 @@ def parse_args() -> argparse.Namespace:
         parser.error("--chapter phải có hai chữ số")
     if args.limit is not None and args.limit < 1:
         parser.error("--limit phải lớn hơn 0")
+    if args.shard_count < 1:
+        parser.error("--shard-count phải lớn hơn 0")
+    if not 0 <= args.shard_index < args.shard_count:
+        parser.error("--shard-index phải từ 0 đến --shard-count - 1")
     return args
 
 
@@ -482,14 +494,31 @@ def call_column_ocr(
         )
     nonblank = [column for column in columns if column["text"]]
     if not nonblank:
-        return (
-            {
-                "text": "", "confidence": 0, "lines": [], "columns": columns,
-                "is_blank": True,
-                "note": f"Đã tách {len(columns)} cột nhưng OCR không có text",
-            },
-            {"layout": "columns", "columns": columns},
-        )
+        # Có box cột không đồng nghĩa các box đó hợp lệ. Với trang in hoặc bố
+        # cục khác tập pilot, detector có thể gom sai vùng và làm mọi crop OCR
+        # rỗng. Thử lại ảnh nguyên trang trước khi kết luận đây là trang blank.
+        if args.engine == "paddle":
+            full_page_parsed, full_page_raw = call_paddle(paddle_ocr, image_path)
+        else:
+            full_page_parsed, full_page_raw = call_ocr(
+                url, api_key, model, image_path, args.timeout, args.max_retries
+            )
+        full_page_parsed["note"] = (
+            f"Đã tách {len(columns)} cột nhưng tất cả OCR rỗng; "
+            "fallback OCR nguyên trang. "
+            + str(full_page_parsed.get("note", ""))
+        ).strip()
+        full_page_parsed["columns"] = [
+            {key: value for key, value in column.items() if key != "raw_response"}
+            for column in columns
+        ]
+        full_page_parsed["layout_fallback"] = "full-page-after-empty-columns"
+        return full_page_parsed, {
+            "layout": "columns",
+            "layout_fallback": "full-page-after-empty-columns",
+            "columns": columns,
+            "full_page_response": full_page_raw,
+        }
     weights = [max(1, len(column["text"])) for column in nonblank]
     confidence = sum(
         column["confidence"] * weight for column, weight in zip(nonblank, weights)
@@ -543,8 +572,20 @@ def reusable_result(
         return None
     if data.get("ocr_layout", "full-page") != ocr_layout:
         return None
-    if data.get("status") in {"success", "blank"}:
-        return str(data["status"])
+    status = data.get("status")
+    if status == "blank" and ocr_layout == "columns":
+        raw_response = data.get("raw_response", {})
+        # Các kết quả tạo bởi phiên bản cũ có thể kết luận BLANK ngay khi đã
+        # phát hiện box cột nhưng mọi crop đều rỗng. Không reuse các JSON đó:
+        # chạy lại đúng các trang này để áp dụng fallback nguyên trang mới.
+        if (
+            isinstance(raw_response, dict)
+            and raw_response.get("columns")
+            and not raw_response.get("layout_fallback")
+        ):
+            return "retry-empty-columns"
+    if status in {"success", "blank"}:
+        return str(status)
     return None if retry_errors else "error"
 
 
@@ -556,6 +597,11 @@ def main() -> int:
         original_dir = Path(args.input_root) / args.id / chapter_id
         processed_dir = Path(args.processed_root) / args.id / chapter_id
         tasks = select_tasks(original_dir, processed_dir, args.source, args.limit)
+        if args.shard_count > 1:
+            tasks = [
+                task for task_index, task in enumerate(tasks)
+                if task_index % args.shard_count == args.shard_index
+            ]
     except (FileNotFoundError, ValueError) as exc:
         print(f"LỖI: {exc}", file=sys.stderr)
         return 1
@@ -598,7 +644,8 @@ def main() -> int:
         reusable = None if args.overwrite else reusable_result(
             output_path, image_hash, args.retry_errors, args.ocr_layout
         )
-        if reusable:
+        retry_empty_columns = reusable == "retry-empty-columns"
+        if reusable and not retry_empty_columns:
             key = f"skipped_{reusable}"
             stats[key] += 1
             print(f"[{index}/{len(tasks)}] SKIP {kind}/{image_path.name} ({reusable})")
@@ -615,7 +662,42 @@ def main() -> int:
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
         }
         try:
-            if args.ocr_layout == "columns":
+            if retry_empty_columns:
+                # JSON cũ đã chứng minh các crop cột đều OCR rỗng. Không tốn
+                # thời gian OCR lại những crop đó; dùng trực tiếp fallback
+                # nguyên trang và giữ dữ liệu cột cũ để audit.
+                previous = json.loads(output_path.read_text(encoding="utf-8"))
+                previous_raw = previous.get("raw_response", {})
+                old_columns = (
+                    previous_raw.get("columns", [])
+                    if isinstance(previous_raw, dict)
+                    else []
+                )
+                if args.engine == "paddle":
+                    parsed, full_page_raw = call_paddle(paddle_ocr, image_path)
+                else:
+                    parsed, full_page_raw = call_ocr(
+                        url, api_key, model, image_path,
+                        args.timeout, args.max_retries,
+                    )
+                parsed["note"] = (
+                    f"Resume từ {len(old_columns)} cột OCR rỗng; "
+                    "fallback OCR nguyên trang. "
+                    + str(parsed.get("note", ""))
+                ).strip()
+                parsed["columns"] = [
+                    {key: value for key, value in column.items() if key != "raw_response"}
+                    for column in old_columns
+                    if isinstance(column, dict)
+                ]
+                parsed["layout_fallback"] = "full-page-after-empty-columns"
+                raw_response = {
+                    "layout": "columns",
+                    "layout_fallback": "full-page-after-empty-columns",
+                    "columns": old_columns,
+                    "full_page_response": full_page_raw,
+                }
+            elif args.ocr_layout == "columns":
                 crop_dir = run_root / "column_crops" / kind / image_path.stem
                 parsed, raw_response = call_column_ocr(
                     args, image_path, crop_dir, paddle_ocr, url, api_key, model
@@ -677,8 +759,13 @@ def main() -> int:
         "invocation_stats": invocation_stats,
         "finished_at_utc": datetime.now(timezone.utc).isoformat(),
     }
-    write_json_atomic(run_root / "run_summary.json", summary)
-    print(f"Tổng kết: {run_root / 'run_summary.json'}")
+    summary_path = (
+        run_root / f"run_summary.shard_{args.shard_index:03d}_of_{args.shard_count:03d}.json"
+        if args.shard_count > 1
+        else run_root / "run_summary.json"
+    )
+    write_json_atomic(summary_path, summary)
+    print(f"Tổng kết: {summary_path}")
     return 1 if final_status_counts["error"] or final_status_counts["missing"] else 0
 
 
