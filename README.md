@@ -301,7 +301,8 @@ jq '.stats' \
   data/intermediate/HVH_001/HVH_001_01/ocr_runs/paddle_columns_full/run_summary.json
 ```
 
-`error` và `missing` phải bằng `0`. `blank` có thể là trang trắng hoặc bìa.
+`error` và `missing` phải bằng `0`. `blank` có thể là trang trắng hoặc bìa,
+nhưng bước 6 sẽ từ chối tạo output nếu tỷ lệ `blank` vượt quá 10%.
 
 ### Bước 7 — Tạo output
 
