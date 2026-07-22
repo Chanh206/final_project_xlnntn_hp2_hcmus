@@ -13,7 +13,7 @@ bằng .env hoặc biến môi trường:
     OCR_MODEL=...
 
 Pilot ba scan ảnh gốc và processed:
-    python scripts/4_ocr_local.py --id HVH_001 --chapter 01 --source both --limit 3
+    python scripts/4_ocr_local.py --folder HVH_001 --source both --limit 3
 """
 
 from __future__ import annotations
@@ -60,8 +60,9 @@ Confidence là số nguyên 0-100 cho toàn ảnh."""
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--id", required=True, help="Work ID, ví dụ HVH_001")
-    parser.add_argument("--chapter", default="01", help="Mã quyển hai chữ số")
+    parser.add_argument("--id", help="Mã xử lý nội bộ, ví dụ HVH_018")
+    parser.add_argument("--folder", help="Folder nguồn 1-1, ví dụ HVH_019")
+    parser.add_argument("--chapter", help="Mã quyển nội bộ; chỉ dùng cùng --id")
     parser.add_argument("--engine", choices=("paddle", "api"), default="paddle")
     parser.add_argument("--source", choices=("original", "processed", "both"), default="both")
     parser.add_argument("--limit", type=int, help="Số scan gốc dùng cho pilot")
@@ -103,10 +104,25 @@ def parse_args() -> argparse.Namespace:
         help="Chiều cao mực tối thiểu của một cột so với trang",
     )
     args = parser.parse_args()
-    if not WORK_ID_RE.fullmatch(args.id):
-        parser.error("--id phải có dạng HVH_NNN")
-    if not CHAPTER_RE.fullmatch(args.chapter):
-        parser.error("--chapter phải có hai chữ số")
+    if bool(args.id) == bool(args.folder):
+        parser.error("Phải chọn đúng một trong --folder hoặc --id")
+    if args.folder:
+        if args.chapter:
+            parser.error("Không dùng --chapter cùng --folder")
+        if not WORK_ID_RE.fullmatch(args.folder):
+            parser.error("--folder phải có dạng HVH_NNN")
+        with Path(args.catalog).open(encoding="utf-8", newline="") as handle:
+            matches = [row for row in csv.DictReader(handle) if row.get("legacy_folder") == args.folder]
+        if len(matches) != 1:
+            parser.error(f"Catalog không có duy nhất một dòng cho --folder {args.folder}")
+        args.id = matches[0]["work_id"]
+        args.chapter = matches[0]["chapter_id"].rsplit("_", 1)[-1]
+    else:
+        args.chapter = args.chapter or "01"
+        if not WORK_ID_RE.fullmatch(args.id):
+            parser.error("--id phải có dạng HVH_NNN")
+        if not CHAPTER_RE.fullmatch(args.chapter):
+            parser.error("--chapter phải có hai chữ số")
     if args.limit is not None and args.limit < 1:
         parser.error("--limit phải lớn hơn 0")
     if args.shard_count < 1:
@@ -594,7 +610,11 @@ def main() -> int:
     chapter_id = f"{args.id}_{args.chapter}"
     try:
         catalog = catalog_entry(Path(args.catalog), args.id, chapter_id)
-        original_dir = Path(args.input_root) / args.id / chapter_id
+        original_dir = (
+            Path(args.input_root) / args.folder
+            if args.folder
+            else Path(args.input_root) / args.id / chapter_id
+        )
         processed_dir = Path(args.processed_root) / args.id / chapter_id
         tasks = select_tasks(original_dir, processed_dir, args.source, args.limit)
         if args.shard_count > 1:

@@ -3,14 +3,15 @@
 
 Script không sửa ``_raw.txt``. Kết quả từng trang được lưu trong
 ``data/intermediate/.../llm_corrections``. Chỉ ``--publish`` khi toàn bộ
-trang đã qua các guard tự động mới thay file ``_seg.tsv`` chính thức.
+trang đã qua các guard tự động mới thay các file ``_seg.tsv`` theo từng
+ảnh scan chính thức.
 
 Ví dụ pilot không gọi API:
-    python scripts/8_llm_correct_segments.py --id HVH_001 --chapter 01 \
+    python scripts/8_llm_correct_segments.py --folder HVH_001 \
       --ocr-run paddle_full_v1 --limit 3 --dry-run
 
 Pilot thật:
-    python scripts/8_llm_correct_segments.py --id HVH_001 --chapter 01 \
+    python scripts/8_llm_correct_segments.py --folder HVH_001 \
       --ocr-run paddle_full_v1 --provider ollama --model qwen3-vl:8b \
       --llm-run qwen3vl8b_pilot_v1 --limit 3
 """
@@ -39,6 +40,7 @@ import requests
 PROMPT_VERSION = "han_nom_vision_correction_v1"
 WORK_ID_RE = re.compile(r"^HVH_\d{3}$")
 CHAPTER_RE = re.compile(r"^\d{2}$")
+LEGACY_FOLDER_RE = re.compile(r"^HVH_(\d{3})$")
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 INCLUDE_CATEGORIES = {"sentence", "title", "heading"}
 JAPANESE_SHINJITAI = {"竜", "録"}
@@ -123,8 +125,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--id", required=True, help="Work ID, ví dụ HVH_001")
-    parser.add_argument("--chapter", default="01")
+    parser.add_argument("--id", help="Mã xử lý nội bộ, ví dụ HVH_018")
+    parser.add_argument("--folder", help="Folder nguồn 1-1, ví dụ HVH_019")
+    parser.add_argument("--chapter", help="Mã quyển nội bộ; chỉ dùng cùng --id")
     parser.add_argument("--ocr-run", required=True, help="Ví dụ paddle_full_v1")
     parser.add_argument("--llm-run", default="vision_correction_v1")
     parser.add_argument(
@@ -142,9 +145,14 @@ def parse_args() -> argparse.Namespace:
         help="Mặc định theo provider: OpenAI /v1/responses hoặc Ollama /api/chat",
     )
     parser.add_argument("--env-file", default=".env")
+    parser.add_argument("--catalog", default="configs/corpus_catalog.csv")
     parser.add_argument("--processed-root", default="data/processed")
     parser.add_argument("--intermediate-root", default="data/intermediate")
-    parser.add_argument("--output-root", default="data/output")
+    parser.add_argument(
+        "--output-root",
+        default="final_output",
+        help="Thư mục nộp chung (mặc định: final_output)",
+    )
     parser.add_argument("--detail", choices=("high", "original"), default="original")
     parser.add_argument(
         "--ocr-guidance",
@@ -175,10 +183,25 @@ def parse_args() -> argparse.Namespace:
         help="Ghi _seg.tsv chính thức; chỉ được phép khi chạy đủ và tất cả trang đạt guard",
     )
     args = parser.parse_args()
-    if not WORK_ID_RE.fullmatch(args.id):
-        parser.error("--id phải có dạng HVH_NNN")
-    if not CHAPTER_RE.fullmatch(args.chapter):
-        parser.error("--chapter phải có hai chữ số")
+    if bool(args.id) == bool(args.folder):
+        parser.error("Phải chọn đúng một trong --folder hoặc --id")
+    if args.folder:
+        if args.chapter:
+            parser.error("Không dùng --chapter cùng --folder")
+        if not WORK_ID_RE.fullmatch(args.folder):
+            parser.error("--folder phải có dạng HVH_NNN")
+        with Path(args.catalog).open(encoding="utf-8", newline="") as handle:
+            matches = [row for row in csv.DictReader(handle) if row.get("legacy_folder") == args.folder]
+        if len(matches) != 1:
+            parser.error(f"Catalog không có duy nhất một dòng cho --folder {args.folder}")
+        args.id = matches[0]["work_id"]
+        args.chapter = matches[0]["chapter_id"].rsplit("_", 1)[-1]
+    else:
+        args.chapter = args.chapter or "01"
+        if not WORK_ID_RE.fullmatch(args.id):
+            parser.error("--id phải có dạng HVH_NNN")
+        if not CHAPTER_RE.fullmatch(args.chapter):
+            parser.error("--chapter phải có hai chữ số")
     if args.limit is not None and args.limit < 1:
         parser.error("--limit phải lớn hơn 0")
     if args.publish and args.limit is not None:
@@ -186,6 +209,24 @@ def parse_args() -> argparse.Namespace:
     if not 0 <= args.min_similarity <= 1:
         parser.error("--min-similarity phải trong khoảng 0..1")
     return args
+
+
+def catalog_entry(path: Path, work_id: str, chapter_id: str) -> dict[str, str]:
+    with path.open(encoding="utf-8", newline="") as handle:
+        matches = [
+            row for row in csv.DictReader(handle)
+            if row.get("work_id") == work_id and row.get("chapter_id") == chapter_id
+        ]
+    if len(matches) != 1:
+        raise ValueError(f"Catalog không có duy nhất một dòng cho {work_id}/{chapter_id}")
+    return matches[0]
+
+
+def submission_group_id(catalog: dict[str, str]) -> str:
+    group_id = str(catalog.get("legacy_folder", ""))
+    if not LEGACY_FOLDER_RE.fullmatch(group_id):
+        raise ValueError("legacy_folder không hợp lệ trong catalog")
+    return group_id
 
 
 def load_env_file(path: Path) -> None:
@@ -235,17 +276,22 @@ def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
     write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
-def load_manifest(path: Path) -> list[tuple[str, Path]]:
+def load_manifest(path: Path, group_id: str) -> list[dict[str, Any]]:
     if not path.is_file():
         raise FileNotFoundError(f"Không tìm thấy manifest: {path}")
-    pages: list[tuple[str, Path]] = []
+    pages: list[dict[str, Any]] = []
     with path.open(encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             image = Path(row.get("processed_image", ""))
+            source = Path(row.get("source_image", ""))
             if not image.is_file():
                 raise FileNotFoundError(f"Không tìm thấy ảnh processed: {image}")
-            pages.append((image.stem, image))
-    if not pages or len(pages) != len({stem for stem, _ in pages}):
+            number_match = re.search(r"_(\d{4})$", source.stem)
+            if not number_match:
+                raise ValueError(f"Không lấy được số ảnh từ source_image: {source}")
+            item_id = f"{group_id}_{int(number_match.group(1)):04d}"
+            pages.append({"stem": image.stem, "image_path": image, "item_id": item_id})
+    if not pages or len(pages) != len({page["stem"] for page in pages}):
         raise ValueError("Manifest rỗng hoặc có processed_image trùng")
     return pages
 
@@ -719,6 +765,12 @@ def correction_segments(data: dict[str, Any]) -> list[dict[str, str]]:
 def main() -> int:
     args = parse_args()
     chapter_id = f"{args.id}_{args.chapter}"
+    try:
+        catalog = catalog_entry(Path(args.catalog), args.id, chapter_id)
+        output_group_id = submission_group_id(catalog)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"LỖI: {exc}", file=sys.stderr)
+        return 1
     load_env_file(Path(args.env_file))
     if args.provider == "ollama":
         model = args.model or os.environ.get("OLLAMA_MODEL", "qwen3-vl:8b")
@@ -764,16 +816,28 @@ def main() -> int:
     page_dir = correction_root / "pages"
 
     try:
-        all_pages = load_manifest(manifest_path)
+        all_pages = load_manifest(manifest_path, output_group_id)
+        expected_items = {
+            f"{output_group_id}_{number:04d}"
+            for number in range(1, int(catalog["image_count"]) + 1)
+        }
+        actual_items = {str(page["item_id"]) for page in all_pages}
+        if actual_items != expected_items:
+            raise ValueError(
+                f"Manifest chưa đủ {len(expected_items)} ảnh nguồn của {output_group_id}"
+            )
         red_candidates = load_red_candidates(review_path)
         tasks: list[dict[str, Any]] = []
-        for stem, image_path in all_pages:
+        for page in all_pages:
+            stem = str(page["stem"])
+            image_path = Path(page["image_path"])
             ocr_path = ocr_dir / f"{stem}.json"
             ocr = load_ocr(ocr_path)
             tasks.append(
                 {
                     "stem": stem,
                     "image_path": image_path,
+                    "item_id": page["item_id"],
                     "ocr_path": ocr_path,
                     "ocr": ocr,
                     "candidates": red_candidates.get(stem, []),
@@ -933,45 +997,67 @@ def main() -> int:
         final_counts[status] += 1
         page_results.append((task["stem"], data))
 
-    candidate_segments: list[tuple[str, dict[str, str]]] = []
+    item_by_stem = {str(task["stem"]): str(task["item_id"]) for task in selected}
+    candidate_segments: dict[str, list[dict[str, str]]] = {}
     for stem, data in page_results:
         if data.get("status") not in {"accepted", "review"}:
             continue
-        candidate_segments.extend((stem, segment) for segment in correction_segments(data))
+        item_id = item_by_stem[stem]
+        candidate_segments.setdefault(item_id, []).extend(correction_segments(data))
 
-    candidate_path = correction_root / f"{chapter_id}_seg_candidate.tsv"
-    candidate_lines = [
-        f"{chapter_id}_{index:06d}\t{str(segment['text']).strip()}"
-        for index, (_, segment) in enumerate(candidate_segments, 1)
-    ]
-    write_text_atomic(candidate_path, "\n".join(candidate_lines) + ("\n" if candidate_lines else ""))
+    candidate_dir = correction_root / "candidates"
+    candidate_paths: list[str] = []
+    candidate_line_count = 0
+    candidate_lines_by_item: dict[str, list[str]] = {}
+    for item_id, segments in candidate_segments.items():
+        lines = [
+            f"{item_id}_{index:06d}\t{str(segment['text']).strip()}"
+            for index, segment in enumerate(segments, 1)
+        ]
+        candidate_lines_by_item[item_id] = lines
+        candidate_path = candidate_dir / f"{item_id}_seg_candidate.tsv"
+        write_text_atomic(candidate_path, "\n".join(lines) + ("\n" if lines else ""))
+        candidate_paths.append(candidate_path.as_posix())
+        candidate_line_count += len(lines)
 
     complete = len(selected) == len(tasks) and sum(final_counts.values()) == len(tasks)
     publishable = complete and not any(
         final_counts.get(status, 0) for status in ("review", "error", "missing")
     )
-    published_path: str | None = None
+    published_paths: list[str] = []
     if args.publish:
         if not publishable:
             print(
                 "LỖI: Không publish vì chưa đủ trang hoặc còn review/error/missing.",
                 file=sys.stderr,
             )
-        elif not candidate_lines:
+        elif not candidate_line_count:
             print("LỖI: Không có câu để publish.", file=sys.stderr)
         else:
-            seg_path = (
-                Path(args.output_root)
-                / args.id
-                / chapter_id
-                / f"{chapter_id}_seg.tsv"
-            )
-            write_text_atomic(seg_path, "\n".join(candidate_lines) + "\n")
-            published_path = seg_path.as_posix()
-            print(f"Đã publish: {seg_path}")
+            expected_items = {str(task["item_id"]) for task in tasks}
+            missing_items = sorted(expected_items - set(candidate_lines_by_item))
+            if missing_items:
+                print(
+                    f"LỖI: Không publish vì {len(missing_items)} ảnh không có segment.",
+                    file=sys.stderr,
+                )
+            else:
+                for item_id in sorted(expected_items):
+                    seg_path = (
+                        Path(args.output_root)
+                        / output_group_id
+                        / item_id
+                        / f"{item_id}_seg.tsv"
+                    )
+                    write_text_atomic(seg_path, "\n".join(candidate_lines_by_item[item_id]) + "\n")
+                    published_paths.append(seg_path.as_posix())
+                print(f"Đã publish {len(published_paths)} file seg trong {Path(args.output_root) / output_group_id}")
 
     summary = {
         "chapter_id": chapter_id,
+        "legacy_folder": catalog["legacy_folder"],
+        "submission_group": output_group_id,
+        "submission_items": sorted({str(task["item_id"]) for task in tasks}),
         "ocr_run": args.ocr_run,
         "llm_run": args.llm_run,
         "provider": args.provider,
@@ -982,17 +1068,17 @@ def main() -> int:
         "expected_pages": len(tasks),
         "final_counts": dict(final_counts),
         "invocation_counts": dict(invocation),
-        "candidate_sentence_count": len(candidate_lines),
-        "candidate_path": candidate_path.as_posix(),
+        "candidate_sentence_count": candidate_line_count,
+        "candidate_paths": candidate_paths,
         "complete": complete,
         "publishable": publishable,
-        "published_path": published_path,
+        "published_paths": published_paths,
         "finished_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     write_json_atomic(correction_root / "run_summary.json", summary)
-    print(f"Candidate: {candidate_path} ({len(candidate_lines)} câu)")
+    print(f"Candidate: {len(candidate_paths)} file, {candidate_line_count} câu")
     print(f"Tổng kết: {correction_root / 'run_summary.json'}")
-    if args.publish and not published_path:
+    if args.publish and not published_paths:
         return 1
     return 1 if final_counts.get("error") or final_counts.get("missing") else 0
 

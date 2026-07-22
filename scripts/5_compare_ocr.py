@@ -21,17 +21,40 @@ from typing import Any
 
 
 PART_RE = re.compile(r"^(.*)_p(\d{2})$")
+WORK_ID_RE = re.compile(r"^HVH_\d{3}$")
+CHAPTER_RE = re.compile(r"^\d{2}$")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--id", required=True, help="Work ID, ví dụ HVH_001")
-    parser.add_argument("--chapter", default="01")
+    parser.add_argument("--id", help="Mã xử lý nội bộ, ví dụ HVH_018")
+    parser.add_argument("--folder", help="Folder nguồn 1-1, ví dụ HVH_019")
+    parser.add_argument("--chapter", help="Mã quyển nội bộ; chỉ dùng cùng --id")
+    parser.add_argument("--catalog", default="configs/corpus_catalog.csv")
     parser.add_argument("--run-name", help="Run original/processed kiểu cũ")
     parser.add_argument("--full-page-run", help="Run bước 4 dùng --ocr-layout full-page")
     parser.add_argument("--columns-run", help="Run bước 4 dùng --ocr-layout columns")
     parser.add_argument("--intermediate-root", default="data/intermediate")
     args = parser.parse_args()
+    if bool(args.id) == bool(args.folder):
+        parser.error("Phải chọn đúng một trong --folder hoặc --id")
+    if args.folder:
+        if args.chapter:
+            parser.error("Không dùng --chapter cùng --folder")
+        if not WORK_ID_RE.fullmatch(args.folder):
+            parser.error("--folder phải có dạng HVH_NNN")
+        with Path(args.catalog).open(encoding="utf-8", newline="") as handle:
+            matches = [row for row in csv.DictReader(handle) if row.get("legacy_folder") == args.folder]
+        if len(matches) != 1:
+            parser.error(f"Catalog không có duy nhất một dòng cho --folder {args.folder}")
+        args.id = matches[0]["work_id"]
+        args.chapter = matches[0]["chapter_id"].rsplit("_", 1)[-1]
+    else:
+        args.chapter = args.chapter or "01"
+        if not WORK_ID_RE.fullmatch(args.id):
+            parser.error("--id phải có dạng HVH_NNN")
+        if not CHAPTER_RE.fullmatch(args.chapter):
+            parser.error("--chapter phải có hai chữ số")
     if bool(args.full_page_run) != bool(args.columns_run):
         parser.error("Phải truyền đồng thời --full-page-run và --columns-run")
     if not args.run_name and not args.full_page_run:

@@ -4,12 +4,20 @@ Project tải ảnh từ Nom Foundation Library, tách scan thành từng trang,
 hiện cột chữ dọc, OCR bằng PaddleOCR, ghép văn bản thô và tách câu theo dấu
 son/dấu đỏ.
 
-Mỗi quyển có đúng hai output bắt buộc:
+Mỗi folder nguồn là một thư mục cấp ngoài; mỗi ảnh scan gốc là một đơn vị
+output riêng. Bộ hiện tại có 32 folder nguồn và 1.994 ảnh:
 
 ```text
-data/output/HVH_NNN/HVH_NNN_CC/
-├── HVH_NNN_CC_raw.txt
-└── HVH_NNN_CC_seg.tsv
+final_output/
+├── HVH_001/
+│   ├── HVH_001_0001/
+│   │   ├── HVH_001_0001_raw.txt
+│   │   └── HVH_001_0001_seg.tsv
+│   ├── ...
+│   └── HVH_001_0048/
+├── HVH_002/                    # 60 ảnh → 60 folder con
+├── ...
+└── HVH_032/                    # 76 ảnh → 76 folder con
 ```
 
 - `raw.txt`: OCR thô để đối chiếu.
@@ -31,16 +39,16 @@ data/output/HVH_NNN/HVH_NNN_CC/
 | `requirements.txt` | Phiên bản package chính; được `environment.yml` sử dụng | Bắt buộc khi tạo môi trường |
 | `requirements-lock.txt` | Cài package bằng `pip`/`venv` thay cho Conda | Chỉ bắt buộc nếu cài bằng pip |
 | `requirements-preprocess.txt` | Chỉ cài NumPy và OpenCV | Chỉ dùng khi muốn chạy riêng bước tiền xử lý |
-| `configs/corpus_catalog.csv` | Ánh xạ volume nguồn sang tác phẩm/quyển và số ảnh | Bắt buộc |
+| `configs/corpus_catalog.csv` | Ánh xạ 32 folder nguồn sang vị trí xử lý nội bộ và mã output chấm máy | Bắt buộc |
 | `configs/ocr_policy.json` | Ghi lại engine, phiên bản và quyết định OCR từ pilot | Không bắt buộc khi chạy; nên giữ làm metadata |
 | `data/input/link.txt` | Danh sách URL volume để bước 1 tải ảnh | Bắt buộc khi tải batch |
 | `data/input/` | Ảnh gốc tải từ nguồn, không được chỉnh sửa | Được sinh bởi bước 1; không commit ảnh JPG |
 | `data/processed/` | Ảnh đã cắt viền và tách thành từng trang | Được sinh bởi bước 3; không commit |
 | `data/intermediate/` | OCR JSON, crop cột, report và dữ liệu resume | Được sinh bởi bước 4–8; không commit |
-| `data/output/` | Chứa `_raw.txt` và `_seg.tsv` của từng quyển | Được sinh bởi bước 6; đây là đầu ra cần nộp |
+| `final_output/` | 32 folder nguồn; bên trong mỗi ảnh có một folder `_NNNN` chứa raw/seg | Được sinh bởi bước 6; tổng dự kiến 1.994 folder con và 3.988 file |
 | `models/paddlex/` | Cache model detection/recognition của PaddleOCR | Tự tải ở lần OCR đầu; không commit |
 | `scripts/1_download_nomfoundation_images.py` | Tải ảnh từ Nom Foundation, retry và kiểm tra catalog | Bắt buộc khi máy chưa có ảnh input; cần Internet |
-| `scripts/2_migrate_input_structure.py` | Chuyển cấu trúc input phẳng cũ sang tác phẩm/quyển, kiểm tra checksum | Chỉ cần cho dữ liệu cũ; máy mới thường chỉ chạy để kiểm tra |
+| `scripts/2_migrate_input_structure.py` | Công cụ tương thích cho bản dữ liệu cũ từng bị gom theo tác phẩm/quyển | Legacy, không chạy với bộ input 32 folder hiện tại |
 | `scripts/3_preprocess_images.py` | Kiểm tra ảnh, cắt viền, tách hai trang và tạo manifest | Bắt buộc |
 | `scripts/4_ocr_local.py` | Tách cột, OCR Paddle/API, fallback full-page và resume | Bắt buộc; Paddle local không cần API key |
 | `scripts/5_compare_ocr.py` | So sánh pilot full-page với columns | Không bắt buộc cho mỗi lần chạy; nên dùng khi đổi kiểu tài liệu |
@@ -155,8 +163,8 @@ git grep -n "OCR_API_KEY=" -- ':!.env.example' || true
 ├── data/
 │   ├── input/          # ảnh gốc, không chỉnh sửa
 │   ├── processed/      # ảnh đã tách trang
-│   ├── intermediate/   # OCR JSON, crop cột và báo cáo
-│   └── output/         # raw.txt và seg.tsv
+│   └── intermediate/   # OCR JSON, crop cột và báo cáo
+├── final_output/       # 32 folder nguồn, 1.994 đơn vị ảnh
 ├── scripts/
 │   ├── 1_download_nomfoundation_images.py
 │   ├── 2_migrate_input_structure.py
@@ -171,8 +179,9 @@ git grep -n "OCR_API_KEY=" -- ':!.env.example' || true
 └── requirements-lock.txt
 ```
 
-Ảnh và kết quả sinh ra không được lưu trong Git. Người clone repository sẽ
-tải lại ảnh bằng bước 1.
+Ảnh input, processed và intermediate không được lưu trong Git. Người clone
+repository sẽ tải lại ảnh bằng bước 1. `final_output` là sản phẩm nộp chung,
+có thể commit sau khi validator báo đạt và đã ghép đủ phần của cả nhóm.
 
 ## 7. Chạy một quyển từ đầu: HVH_001_01
 
@@ -192,27 +201,29 @@ Script có retry, timeout, tự bỏ qua ảnh đã tồn tại và ưu tiên �
 Kiểm tra số ảnh một quyển:
 
 ```bash
-find data/input/HVH_001/HVH_001_01 -type f -name '*.jpg' | wc -l
+find data/input/HVH_001 -maxdepth 1 -type f -name '*.jpg' | wc -l
 ```
 
-### Bước 2 — Kiểm tra hoặc migrate cấu trúc input
+### Bước 2 — Kiểm tra cấu trúc 32 folder input
 
 ```bash
-python scripts/2_migrate_input_structure.py
+find data/input -mindepth 1 -maxdepth 1 -type d -name 'HVH_*' | sort
+python scripts/1_download_nomfoundation_images.py \
+  --links-file data/input/link.txt \
+  --catalog configs/corpus_catalog.csv \
+  --out-root data/input \
+  --validate-only
 ```
 
-Nếu dữ liệu đã ở cấu trúc mới thì không cần làm thêm. Chỉ chạy lệnh sau khi
-ảnh thực sự còn ở cấu trúc phẳng cũ:
-
-```bash
-python scripts/2_migrate_input_structure.py --execute
-```
+Kết quả phải có đúng `HVH_001` đến `HVH_032`. Không chạy
+`2_migrate_input_structure.py` cho bộ input này vì script đó chỉ dành cho
+bản dữ liệu legacy và có thể gom các folder theo tác phẩm/quyển.
 
 ### Bước 3 — Kiểm tra và tiền xử lý ảnh
 
 ```bash
 python scripts/3_preprocess_images.py \
-  --id HVH_001 --chapter 01 --variant color
+  --folder HVH_001 --variant color
 ```
 
 Kết quả:
@@ -232,7 +243,7 @@ chỉnh sửa ảnh trong `data/input`.
 
 ```bash
 python scripts/4_ocr_local.py \
-  --id HVH_001 --chapter 01 \
+  --folder HVH_001 \
   --engine paddle --source processed \
   --limit 3 --ocr-layout full-page \
   --run-name paddle_fullpage_pilot
@@ -242,7 +253,7 @@ python scripts/4_ocr_local.py \
 
 ```bash
 python scripts/4_ocr_local.py \
-  --id HVH_001 --chapter 01 \
+  --folder HVH_001 \
   --engine paddle --source processed \
   --limit 3 --ocr-layout columns \
   --run-name paddle_columns_pilot
@@ -265,7 +276,7 @@ Nếu không phát hiện được cột, script fallback OCR nguyên trang và 
 
 ```bash
 python scripts/5_compare_ocr.py \
-  --id HVH_001 --chapter 01 \
+  --folder HVH_001 \
   --full-page-run paddle_fullpage_pilot \
   --columns-run paddle_columns_pilot
 ```
@@ -286,7 +297,7 @@ Pipeline hiện chọn OCR từng cột:
 
 ```bash
 python scripts/4_ocr_local.py \
-  --id HVH_001 --chapter 01 \
+  --folder HVH_001 \
   --engine paddle --source processed \
   --ocr-layout columns \
   --run-name paddle_columns_full \
@@ -308,17 +319,22 @@ nhưng bước 6 sẽ từ chối tạo output nếu tỷ lệ `blank` vượt q
 
 ```bash
 python scripts/6_build_outputs.py \
-  --id HVH_001 --chapter 01 \
+  --folder HVH_001 \
   --run-name paddle_columns_full --overwrite
 ```
 
 Output:
 
 ```text
-data/output/HVH_001/HVH_001_01/
-├── HVH_001_01_raw.txt
-└── HVH_001_01_seg.tsv
+final_output/HVH_001/HVH_001_0001/
+├── HVH_001_0001_raw.txt
+└── HVH_001_0001_seg.tsv
 ```
+
+`HVH_001_01` là ID xử lý nội bộ. Khi tạo output, mỗi ảnh nguồn được ánh xạ
+một-một: `HVH_001_0001.jpg` thành folder `HVH_001_0001`, ...,
+`HVH_001_0048.jpg` thành `HVH_001_0048`. Nếu một scan được tách thành
+`p01/p02`, hai phần OCR được ghép lại trong cùng output của ảnh scan đó.
 
 Báo cáo:
 
@@ -332,92 +348,32 @@ data/intermediate/HVH_001/HVH_001_01/build_reports/
 ### Bước 8 — Validate
 
 ```bash
-python scripts/7_check_output.py --id HVH_001_01
+python scripts/7_check_output.py --id HVH_001_0001
 ```
 
 Kết quả cuối phải là `Output đạt yêu cầu`.
 
-## 8. Chạy HVH_001 đến HVH_005
-
-### 8.1 Tiền xử lý
+Kiểm tra riêng đủ 48 ảnh của `HVH_001`:
 
 ```bash
-for n in 001 002 003 004 005
-do
-  echo "=== PREPROCESS HVH_${n} ==="
-  python scripts/3_preprocess_images.py \
-    --id "HVH_${n}" --chapter 01 --variant color || break
-done
+python scripts/7_check_output.py --folder HVH_001
 ```
 
-### 8.2 Pilot full-page, columns và so sánh
+Trước khi nộp, kiểm tra đủ 32 folder nguồn và toàn bộ 1.994 ảnh:
 
 ```bash
-for n in 001 002 003 004 005
-do
-  echo "=== PILOT HVH_${n} ==="
-
-  python scripts/4_ocr_local.py \
-    --id "HVH_${n}" --chapter 01 \
-    --engine paddle --source processed --limit 3 \
-    --ocr-layout full-page --run-name paddle_fullpage_pilot || break
-
-  python scripts/4_ocr_local.py \
-    --id "HVH_${n}" --chapter 01 \
-    --engine paddle --source processed --limit 3 \
-    --ocr-layout columns --run-name paddle_columns_pilot || break
-
-  python scripts/5_compare_ocr.py \
-    --id "HVH_${n}" --chapter 01 \
-    --full-page-run paddle_fullpage_pilot \
-    --columns-run paddle_columns_pilot || break
-done
+python scripts/7_check_output.py --all
 ```
 
-### 8.3 OCR đầy đủ
+Chỉ nộp khi kết quả là `ĐẠT TOÀN BỘ: 32 folder, 1994 ảnh`.
 
-```bash
-for n in 001 002 003 004 005
-do
-  echo "=== FULL OCR HVH_${n} ==="
-  python scripts/4_ocr_local.py \
-    --id "HVH_${n}" --chapter 01 \
-    --engine paddle --source processed \
-    --ocr-layout columns --run-name paddle_columns_full \
-    --retry-errors || break
-done
-```
+## 8. Chạy toàn bộ HVH_001 đến HVH_032
 
-Kiểm tra run:
-
-```bash
-for n in 001 002 003 004 005
-do
-  report="data/intermediate/HVH_${n}/HVH_${n}_01/ocr_runs/paddle_columns_full/run_summary.json"
-  echo "=== HVH_${n} ==="
-  if [ -f "$report" ]; then
-    jq '.stats' "$report"
-  else
-    echo "CHƯA CÓ RUN SUMMARY"
-  fi
-done
-```
-
-### 8.4 Build và validate
-
-```bash
-for n in 001 002 003 004 005
-do
-  python scripts/6_build_outputs.py \
-    --id "HVH_${n}" --chapter 01 \
-    --run-name paddle_columns_full --overwrite || break
-done
-
-for n in 001 002 003 004 005
-do
-  python scripts/7_check_output.py --id "HVH_${n}_01" || break
-done
-```
+Quy trình đầy đủ gồm làm sạch, kiểm tra 1.994 ảnh, preprocess, pilot, OCR,
+build theo từng ảnh và validate được trình bày trong
+[`RUN_FROM_SCRATCH.md`](RUN_FROM_SCRATCH.md). Hãy dùng các vòng lặp trong tài
+liệu đó; mỗi bước dừng ngay tại folder lỗi và có kiểm tra số lượng trước khi
+chuyển sang bước tiếp theo.
 
 ## 9. LLM correction tùy chọn
 
@@ -428,7 +384,7 @@ Provider tương thích OpenAI:
 
 ```bash
 python scripts/8_llm_correct_segments.py \
-  --id HVH_001 --chapter 01 \
+  --folder HVH_001 \
   --ocr-run paddle_columns_full \
   --provider compatible --llm-run compatible_pilot \
   --ocr-guidance full --limit 3
@@ -440,7 +396,7 @@ Ollama local:
 ollama pull qwen3-vl:8b
 
 python scripts/8_llm_correct_segments.py \
-  --id HVH_001 --chapter 01 \
+  --folder HVH_001 \
   --ocr-run paddle_columns_full \
   --provider ollama --model qwen3-vl:8b \
   --llm-run qwen3vl_pilot --ocr-guidance full --limit 3
@@ -500,7 +456,7 @@ Output Paddle thông thường không dùng `--allow-corrected`. Chỉ dùng tù
 
 ```bash
 git status --short
-git check-ignore -v .env data/processed data/intermediate data/output models
+git check-ignore -v .env data/processed data/intermediate models
 ```
 
 Repository nên chứa:

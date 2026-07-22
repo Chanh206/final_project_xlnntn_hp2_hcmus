@@ -1,7 +1,7 @@
 # Thứ tự chạy pipeline
 
 1. `1_download_nomfoundation_images.py`: tải ảnh theo catalog.
-2. `2_migrate_input_structure.py`: migration một lần từ cấu trúc cũ.
+2. `2_migrate_input_structure.py`: công cụ legacy, không chạy với bộ input 32 folder hiện tại.
 3. `3_preprocess_images.py`: kiểm tra, cắt viền và tách trang.
 4. `4_ocr_local.py`: OCR ảnh local, lưu JSON từng trang và resume.
 5. `5_compare_ocr.py`: so sánh pilot OCR gốc/processed.
@@ -21,14 +21,14 @@ Kiểm tra mapping mà không gọi API:
 
 ```bash
 python scripts/4_ocr_local.py \
-  --id HVH_001 --chapter 01 --source both --limit 3 --dry-run
+  --folder HVH_001 --source both --limit 3 --dry-run
 ```
 
 Chạy OCR thật trên ba scan gốc và sáu trang processed:
 
 ```bash
 python scripts/4_ocr_local.py \
-  --id HVH_001 --chapter 01 --engine paddle \
+  --folder HVH_001 --engine paddle \
   --source both --limit 3 --run-name paddle_pilot_v1
 ```
 
@@ -36,7 +36,7 @@ Lệnh in ra `run_name`. Dùng giá trị đó để so sánh:
 
 ```bash
 python scripts/5_compare_ocr.py \
-  --id HVH_001 --chapter 01 --run-name paddle_pilot_v1
+  --folder HVH_001 --run-name paddle_pilot_v1
 ```
 
 `comparison.tsv` có hai cột `manual_choice` và `manual_note` để người
@@ -60,10 +60,73 @@ dùng dấu ngắt màu đỏ trên ảnh và polygon OCR để phục hồi ran
 
 ```bash
 python scripts/6_build_outputs.py \
-  --id HVH_001 --chapter 01 --run-name paddle_full_v1 --overwrite
+  --folder HVH_001 --run-name paddle_full_v1 --overwrite
 
-python scripts/7_check_output.py --id HVH_001_01
+python scripts/7_check_output.py --id HVH_001_0001
 ```
+
+Kiểm tra đủ ảnh của một folder nguồn:
+
+```bash
+python scripts/7_check_output.py --folder HVH_001
+```
+
+Kiểm tra toàn bộ 32 folder nguồn và 1.994 ảnh:
+
+```bash
+python scripts/7_check_output.py --all
+```
+
+### Output tổng hợp theo folder nguồn
+
+Để tạo đúng cấu trúc `final_output_revised/HVH_NNN/` gồm một file raw và
+một file seg cho toàn bộ ảnh của folder, dùng `--output-layout folder`.
+Ví dụ chạy liên tục từ `HVH_021` đến `HVH_032`:
+
+```bash
+set -euo pipefail
+
+for folder in {021..032}; do
+  python scripts/3_preprocess_images.py \
+    --folder "HVH_${folder}" \
+    --variant color \
+    --overwrite
+
+  python scripts/4_ocr_local.py \
+    --folder "HVH_${folder}" \
+    --engine paddle \
+    --source processed \
+    --ocr-layout columns \
+    --run-name paddle_columns_revised_v1
+
+  python scripts/6_build_outputs.py \
+    --folder "HVH_${folder}" \
+    --run-name paddle_columns_revised_v1 \
+    --output-layout folder \
+    --output-root final_output_revised \
+    --segmentation-mode red-marks \
+    --overwrite
+
+  python scripts/7_check_output.py \
+    --folder "HVH_${folder}" \
+    --output-layout folder \
+    --output-root final_output_revised
+done
+```
+
+Kết quả của mỗi folder có dạng:
+
+```text
+final_output_revised/
+└── HVH_021/
+    ├── HVH_021_raw.txt
+    └── HVH_021_seg.tsv
+```
+
+Các ID trong file seg chạy liên tục cho toàn folder, ví dụ
+`HVH_021_000001`, `HVH_021_000002`, ... Mỗi dòng vẫn gồm đúng hai cột
+`sentence_id<TAB>sentence`. Script bước 6 không tạo output nếu tỷ lệ trang
+OCR rỗng vượt 10%.
 
 Script tạo thêm `build_reports/*.segmentation_review.tsv` và
 `*.red_mark_detections.tsv` để duyệt nguồn trang, phương pháp ngắt và
@@ -78,7 +141,7 @@ Không sửa trực tiếp `_raw.txt`. Trước tiên cấu hình `OPENAI_API_KE
 
 ```bash
 python scripts/8_llm_correct_segments.py \
-  --id HVH_001 --chapter 01 --ocr-run paddle_full_v1 \
+  --folder HVH_001 --ocr-run paddle_full_v1 \
   --limit 3 --dry-run
 ```
 
@@ -90,14 +153,14 @@ Sau khi publish bản đã hiệu chỉnh, validator cần cho phép `_seg.tsv` 
 OCR thô:
 
 ```bash
-python scripts/7_check_output.py --id HVH_001_01 --allow-corrected
+python scripts/7_check_output.py --id HVH_001_0001 --allow-corrected
 ```
 
 Chạy local miễn phí bằng Ollama/Qwen3-VL:
 
 ```bash
 python scripts/8_llm_correct_segments.py \
-  --id HVH_001 --chapter 01 --ocr-run paddle_full_v1 \
+  --folder HVH_001 --ocr-run paddle_full_v1 \
   --provider ollama --model qwen3-vl:8b \
   --llm-run qwen3vl8b_pilot_v1 --limit 3
 ```
@@ -106,6 +169,6 @@ Chạy API trung gian tương thích OpenAI bằng các biến `OCR_*` trong `.e
 
 ```bash
 python scripts/8_llm_correct_segments.py \
-  --id HVH_001 --chapter 01 --ocr-run paddle_full_v1 \
+  --folder HVH_001 --ocr-run paddle_full_v1 \
   --provider compatible --llm-run compatible_pilot_v1 --limit 3
 ```

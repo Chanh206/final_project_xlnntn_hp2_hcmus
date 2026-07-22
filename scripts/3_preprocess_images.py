@@ -17,7 +17,6 @@ Kết quả:
     data/processed/HVH_001/HVH_001_01/manifest.csv
     data/processed/HVH_001/HVH_001_01/summary.json
     data/intermediate/HVH_001/HVH_001_01/pages/ (dành cho bước OCR sau)
-    data/output/HVH_001/HVH_001_01/             (dành cho raw.txt/seg.tsv sau)
 """
 
 from __future__ import annotations
@@ -82,13 +81,13 @@ class ManifestRow:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--id", required=True, help="Mã tác phẩm, ví dụ HVH_001")
-    parser.add_argument("--chapter", default="01", help="Mã quyển/tập hai chữ số (mặc định: 01)")
+    parser.add_argument("--id", help="Mã xử lý nội bộ, ví dụ HVH_018")
+    parser.add_argument("--folder", help="Folder nguồn 1-1, ví dụ HVH_019")
+    parser.add_argument("--chapter", help="Mã quyển nội bộ; chỉ dùng cùng --id")
     parser.add_argument("--catalog", default="configs/corpus_catalog.csv")
     parser.add_argument("--input-root", default="data/input")
     parser.add_argument("--processed-root", default="data/processed")
     parser.add_argument("--intermediate-root", default="data/intermediate")
-    parser.add_argument("--output-root", default="data/output")
     parser.add_argument("--limit", type=int, help="Chỉ xử lý N ảnh đầu tiên để pilot")
     parser.add_argument(
         "--split",
@@ -107,10 +106,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fail-on-warning", action="store_true", help="Trả exit code 2 nếu có cảnh báo chất lượng")
     args = parser.parse_args()
 
-    if not ID_RE.fullmatch(args.id):
-        parser.error("--id phải có dạng HVH_NNN, ví dụ HVH_001")
-    if not CHAPTER_RE.fullmatch(args.chapter):
-        parser.error("--chapter phải có hai chữ số, ví dụ 01")
+    if bool(args.id) == bool(args.folder):
+        parser.error("Phải chọn đúng một trong --folder hoặc --id")
+    if args.folder:
+        if args.chapter:
+            parser.error("Không dùng --chapter cùng --folder")
+        if not ID_RE.fullmatch(args.folder):
+            parser.error("--folder phải có dạng HVH_NNN")
+        with Path(args.catalog).open(encoding="utf-8", newline="") as handle:
+            matches = [row for row in csv.DictReader(handle) if row.get("legacy_folder") == args.folder]
+        if len(matches) != 1:
+            parser.error(f"Catalog không có duy nhất một dòng cho --folder {args.folder}")
+        args.id = matches[0]["work_id"]
+        args.chapter = matches[0]["chapter_id"].rsplit("_", 1)[-1]
+    else:
+        args.chapter = args.chapter or "01"
+        if not ID_RE.fullmatch(args.id):
+            parser.error("--id phải có dạng HVH_NNN, ví dụ HVH_001")
+        if not CHAPTER_RE.fullmatch(args.chapter):
+            parser.error("--chapter phải có hai chữ số, ví dụ 01")
     if args.limit is not None and args.limit < 1:
         parser.error("--limit phải lớn hơn 0")
     return args
@@ -328,10 +342,13 @@ def main() -> int:
         print(f"LỖI: {exc}", file=sys.stderr)
         return 1
 
-    input_dir = Path(args.input_root) / args.id / chapter_id
+    input_dir = (
+        Path(args.input_root) / args.folder
+        if args.folder
+        else Path(args.input_root) / args.id / chapter_id
+    )
     processed_dir = Path(args.processed_root) / args.id / chapter_id
     intermediate_pages_dir = Path(args.intermediate_root) / args.id / chapter_id / "pages"
-    output_dir = Path(args.output_root) / args.id / chapter_id
 
     if not input_dir.is_dir():
         print(f"LỖI: Không tìm thấy thư mục input: {input_dir}", file=sys.stderr)
@@ -344,7 +361,6 @@ def main() -> int:
 
     processed_dir.mkdir(parents=True, exist_ok=True)
     intermediate_pages_dir.mkdir(parents=True, exist_ok=True)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     rows: list[ManifestRow] = []
     errors: list[dict[str, str]] = []
@@ -448,7 +464,6 @@ def main() -> int:
     print(f"Spread đã tách: {split_count}; trang processed: {len(rows)}")
     print(f"Cảnh báo: {dict(flag_counts) if flag_counts else 'không có'}")
     print(f"Thư mục OCR trung gian: {intermediate_pages_dir}")
-    print(f"Thư mục output cuối: {output_dir}")
 
     if errors:
         return 1

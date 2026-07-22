@@ -1,147 +1,266 @@
-# Chạy lại pipeline từng bước
+# Chạy lại pipeline từ đầu đến cuối
 
-Các lệnh dưới đây chạy tại thư mục gốc project:
+Quy trình này tạo output cho 32 folder nguồn và 1.994 ảnh. Mỗi ảnh gốc tạo
+một folder chứa đúng hai file. Ví dụ `HVH_001` có 48 ảnh nên output chạy từ
+`HVH_001_0001` đến `HVH_001_0048`.
+
+Chạy mọi lệnh tại thư mục gốc repository:
 
 ```bash
 cd xlnntn_hp2_k35
 conda activate NLP
 ```
 
-## 0. Làm sạch kết quả sinh ra một cách an toàn
+Không chạy `scripts/2_migrate_input_structure.py`. Script đó chỉ dành cho
+dữ liệu legacy từng bị gom sai cấu trúc.
 
-Không xóa `data/input`, `configs/corpus_catalog.csv` hoặc `data/input/link.txt`.
-Nên đổi tên kết quả cũ để có thể phục hồi:
+## 0. Kiểm tra môi trường
 
 ```bash
-stamp=$(date +%Y%m%d_%H%M%S)
-mv data/processed "data/processed_backup_${stamp}" 2>/dev/null || true
-mv data/intermediate "data/intermediate_backup_${stamp}" 2>/dev/null || true
-mv data/output "data/output_backup_${stamp}" 2>/dev/null || true
+python --version
+python -c "import cv2, numpy, paddle; print('OpenCV', cv2.__version__); print('NumPy', numpy.__version__); print('Paddle', paddle.__version__)"
+python -c "from paddleocr import PaddleOCR; print('PaddleOCR import OK')"
 ```
 
-Nếu chắc chắn không cần backup, có thể tự xóa ba thư mục `data/processed`,
-`data/intermediate`, `data/output`; tuyệt đối không xóa `data/input`.
+Model Paddle đã tải nằm trong `models/paddlex`; giữ thư mục này để không phải
+tải lại. Nên còn trống ít nhất 8 GB trước khi chạy toàn bộ.
 
-## 1. Kiểm tra/tải ảnh
+## 1. Làm sạch kết quả cũ
 
-Ảnh đã có đủ thì không cần tải lại. Muốn script tự bỏ qua file đã tồn tại:
+Không xóa `data/input`, `data/input/link.txt`, `.env`, `configs` hoặc
+`models`. Nếu chắc chắn kết quả cũ không cần giữ:
+
+```bash
+rm -rf data/processed data/intermediate data/output final_output
+find scripts -type d -name '__pycache__' -prune -exec rm -rf {} +
+```
+
+Trong workspace hiện tại, bước này đã được thực hiện.
+
+## 2. Kiểm tra input
+
+Không cần tải lại vì hiện đã có đủ ảnh. Chạy kiểm tra:
 
 ```bash
 python scripts/1_download_nomfoundation_images.py \
-  --links-file data/input/link.txt --out-root data/input
+  --links-file data/input/link.txt \
+  --catalog configs/corpus_catalog.csv \
+  --out-root data/input \
+  --validate-only
+
+find data/input -mindepth 1 -maxdepth 1 -type d -name 'HVH_*' | wc -l
+find data/input -mindepth 2 -maxdepth 2 -type f -name '*.jpg' | wc -l
 ```
 
-## 2. Kiểm tra cấu trúc input
-
-```bash
-python scripts/2_migrate_input_structure.py
-```
-
-Nếu script báo dữ liệu đã ở cấu trúc mới thì đó là kết quả đúng. Chỉ dùng
-`--execute` khi dữ liệu thực sự còn ở cấu trúc phẳng cũ.
-
-## 3. Tách trang và kiểm tra ảnh
-
-Chạy thử một quyển:
-
-```bash
-python scripts/3_preprocess_images.py \
-  --id HVH_001 --chapter 01 --variant color
-```
-
-Kiểm tra `data/processed/HVH_001/HVH_001_01/summary.json` và `manifest.csv`.
-
-## 4A. Pilot OCR nguyên trang
-
-```bash
-python scripts/4_ocr_local.py \
-  --id HVH_001 --chapter 01 --engine paddle --source processed \
-  --limit 3 --ocr-layout full-page --run-name paddle_fullpage_pilot
-```
-
-## 4B. Pilot OCR từng cột
-
-```bash
-python scripts/4_ocr_local.py \
-  --id HVH_001 --chapter 01 --engine paddle --source processed \
-  --limit 3 --ocr-layout columns --run-name paddle_columns_pilot
-```
-
-Crop cột nằm tại:
+Kết quả bắt buộc:
 
 ```text
-data/intermediate/HVH_001/HVH_001_01/ocr_runs/
-└── paddle_columns_pilot/column_crops/processed/<PAGE_ID>/col_NN.png
+ĐẠT: 32 link khớp 32 folder HVH_001..HVH_032
+32
+1994
 ```
 
-## 5. So sánh full-page với columns
+Nếu thiếu ảnh, chạy lại bước tải có resume:
 
 ```bash
+python scripts/1_download_nomfoundation_images.py \
+  --links-file data/input/link.txt \
+  --catalog configs/corpus_catalog.csv \
+  --out-root data/input \
+  --quality large --workers 6
+```
+
+## 3. Tiền xử lý toàn bộ 32 folder
+
+Biến thể `color` giữ thông tin màu đỏ dùng để tách câu:
+
+```bash
+for n in $(seq -f '%03g' 1 32)
+do
+  echo "=== PREPROCESS HVH_${n} ==="
+  if ! python scripts/3_preprocess_images.py \
+    --folder "HVH_${n}" \
+    --variant color
+  then
+    echo "DỪNG: PREPROCESS LỖI TẠI HVH_${n}"
+    break
+  fi
+done
+```
+
+Kiểm tra phải có 32 manifest và không có ảnh preprocess lỗi:
+
+```bash
+find data/processed -name manifest.csv | wc -l
+find data/processed -name summary.json -print0 | \
+  xargs -0 jq -r 'select(.input_images_failed != 0) | [.chapter_id, .input_images_failed] | @tsv'
+```
+
+Lệnh thứ nhất phải in `32`; lệnh thứ hai không được in dòng nào. Các giá trị
+`split_confidence` thấp chỉ phản ánh độ chắc chắn của vị trí tách scan, không
+phải confidence OCR.
+
+## 4. Pilot xác nhận layout trên HVH_001
+
+Chạy ba trang bằng cả hai layout:
+
+```bash
+python scripts/4_ocr_local.py \
+  --folder HVH_001 --engine paddle --source processed \
+  --limit 3 --ocr-layout full-page \
+  --run-name paddle_fullpage_pilot
+
+python scripts/4_ocr_local.py \
+  --folder HVH_001 --engine paddle --source processed \
+  --limit 3 --ocr-layout columns \
+  --run-name paddle_columns_pilot
+
 python scripts/5_compare_ocr.py \
-  --id HVH_001 --chapter 01 \
+  --folder HVH_001 \
   --full-page-run paddle_fullpage_pilot \
   --columns-run paddle_columns_pilot
 ```
 
-Đọc `summary.json` và `comparison.tsv` trong:
+Thiết kế hiện tại chọn `columns`. Nếu tất cả crop cột OCR rỗng, script tự
+fallback sang full-page trước khi kết luận `BLANK`.
+
+## 5. OCR đầy đủ 32 folder
+
+Tên run dùng thống nhất ở các bước sau là `paddle_columns_full`:
+
+```bash
+for n in $(seq -f '%03g' 1 32)
+do
+  echo "=== OCR HVH_${n} ==="
+  if ! python scripts/4_ocr_local.py \
+    --folder "HVH_${n}" \
+    --engine paddle \
+    --source processed \
+    --ocr-layout columns \
+    --run-name paddle_columns_full \
+    --retry-errors
+  then
+    echo "DỪNG: OCR LỖI TẠI HVH_${n}"
+    break
+  fi
+done
+```
+
+Lệnh có resume: chạy lại đúng vòng lặp nếu máy bị dừng. JSON `success` và
+`blank` hợp lệ được bỏ qua; `error` được chạy lại nhờ `--retry-errors`.
+
+Kiểm tra phải có 32 summary OCR và không có `error`/`missing`:
+
+```bash
+find data/intermediate -path '*/ocr_runs/paddle_columns_full/run_summary.json' | wc -l
+
+find data/intermediate -path '*/ocr_runs/paddle_columns_full/run_summary.json' -print0 | \
+  xargs -0 jq -r 'select(.stats.error != 0 or .stats.missing != 0) | [.chapter_id, .stats.error, .stats.missing] | @tsv'
+```
+
+Lệnh thứ nhất phải in `32`; lệnh thứ hai không được in dòng nào. Liệt kê các
+run còn `BLANK`:
+
+```bash
+find data/intermediate -path '*/ocr_runs/paddle_columns_full/run_summary.json' -print0 | \
+  xargs -0 jq -r 'select(.stats.blank != 0) | [.chapter_id, .stats.blank] | @tsv'
+```
+
+Không tự coi ảnh input là trắng chỉ vì OCR báo `BLANK`. Bước 6 sẽ từ chối
+folder có tỷ lệ trang blank vượt 10%, đồng thời từ chối bất kỳ ảnh gốc nào
+không tạo được raw/segment.
+
+## 6. Tạo raw/seg theo từng ảnh
+
+```bash
+for n in $(seq -f '%03g' 1 32)
+do
+  echo "=== BUILD HVH_${n} ==="
+  if ! python scripts/6_build_outputs.py \
+    --folder "HVH_${n}" \
+    --run-name paddle_columns_full \
+    --overwrite
+  then
+    echo "DỪNG: BUILD LỖI TẠI HVH_${n}"
+    break
+  fi
+done
+```
+
+Ví dụ cấu trúc sau khi build `HVH_001`:
 
 ```text
-data/intermediate/HVH_001/HVH_001_01/ocr_comparison/
-paddle_fullpage_pilot_vs_paddle_columns_pilot/
+final_output/HVH_001/
+├── HVH_001_0001/
+│   ├── HVH_001_0001_raw.txt
+│   └── HVH_001_0001_seg.tsv
+├── ...
+└── HVH_001_0048/
+    ├── HVH_001_0048_raw.txt
+    └── HVH_001_0048_seg.tsv
 ```
 
-Không chọn layout chỉ dựa vào confidence. Cần xem thêm số ký tự CJK, số cột,
-unknown và nội dung. Pilot v2 hiện tại trên sáu trang khuyến nghị `columns`:
-confidence 67.275% so với 66.213%, và 1023 so với 1005 ký tự CJK. Đây vẫn là
-heuristic chứ không phải accuracy.
+Nếu một scan được tách thành `p01/p02`, hai kết quả OCR được ghép trong cùng
+cặp file của ảnh scan gốc.
 
-## 6. OCR đầy đủ bằng layout đã chọn
+## 7. Validate từng folder và toàn bộ corpus
 
-Với kết quả pilot v2 hiện tại, thử chạy đầy đủ bằng từng cột:
+Kiểm tra lần lượt; vòng lặp dừng ngay tại folder không đạt:
 
 ```bash
-python scripts/4_ocr_local.py \
-  --id HVH_001 --chapter 01 --engine paddle --source processed \
-  --ocr-layout columns --run-name paddle_columns_full
+for n in $(seq -f '%03g' 1 32)
+do
+  echo "=== VALIDATE HVH_${n} ==="
+  if ! python scripts/7_check_output.py --folder "HVH_${n}"
+  then
+    echo "DỪNG: VALIDATOR LỖI TẠI HVH_${n}"
+    break
+  fi
+done
 ```
 
-Nếu muốn giữ một run nguyên trang đầy đủ để đối chứng, chạy riêng:
+Cuối cùng:
 
 ```bash
-python scripts/4_ocr_local.py \
-  --id HVH_001 --chapter 01 --engine paddle --source processed \
-  --ocr-layout full-page --run-name paddle_full_v2
+python scripts/7_check_output.py --all
 ```
 
-## 7. Tạo hai output bắt buộc và kiểm tra
-
-Tên `--run-name` phải trùng run đầy đủ đã chọn ở bước trên:
-
-```bash
-python scripts/6_build_outputs.py \
-  --id HVH_001 --chapter 01 --run-name paddle_columns_full --overwrite
-
-python scripts/7_check_output.py --id HVH_001_01
-```
-
-Output:
+Chỉ hoàn tất khi nhận được:
 
 ```text
-data/output/HVH_001/HVH_001_01/
-├── HVH_001_01_raw.txt
-└── HVH_001_01_seg.tsv
+ĐẠT TOÀN BỘ: 32 folder, 1994 ảnh trong final_output
 ```
 
-## 8. Pilot LLM correction (không publish)
+Kiểm tra nhanh tổng số file:
 
-Model hiện tại chưa đủ tốt, nên chỉ pilot ba trang và không thêm `--publish`:
+```bash
+find final_output -mindepth 2 -maxdepth 2 -type d | wc -l
+find final_output -type f -name '*_raw.txt' | wc -l
+find final_output -type f -name '*_seg.tsv' | wc -l
+```
+
+Cả ba lệnh phải lần lượt in `1994`, `1994`, `1994`.
+
+## 8. LLM correction tùy chọn
+
+Bước này không bắt buộc để tạo hai output. Luôn pilot trước và không dùng
+`--publish`:
 
 ```bash
 python scripts/8_llm_correct_segments.py \
-  --id HVH_001 --chapter 01 --ocr-run paddle_columns_full \
-  --provider compatible --llm-run compatible_pilot_v3 \
-  --ocr-guidance full --limit 3
+  --folder HVH_001 \
+  --ocr-run paddle_columns_full \
+  --provider ollama \
+  --model qwen3-vl:32b \
+  --llm-run qwen3vl32b_pilot \
+  --limit 3
 ```
 
-Chỉ chạy toàn bộ/publish khi pilot không còn `review` và đã có cách đánh giá
-accuracy bằng ground truth. Bước 8 không sửa `_raw.txt`.
+Chỉ chạy toàn bộ và thêm `--publish` khi pilot đạt yêu cầu, không còn trang
+`review/error/missing`. Bước 8 không sửa `_raw.txt`; nó chỉ thay từng
+`_seg.tsv` tương ứng với ảnh scan. Sau khi publish, validate bằng
+`--allow-corrected`:
+
+```bash
+python scripts/7_check_output.py --folder HVH_001 --allow-corrected
+```
