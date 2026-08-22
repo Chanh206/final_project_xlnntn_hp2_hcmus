@@ -1,0 +1,21 @@
+{
+  "default_engine": "paddle",
+  "paddle_version": "3.7.0",
+  "ocr_version": "PP-OCRv5",
+  "language": "chinese_cht",
+  "default_source": "processed",
+  "reading_order": "columns_right_to_left_top_to_bottom",
+  "pilot": {
+    "chapter_id": "HVH_001_01",
+    "run_name": "paddle_pilot_v1",
+    "compared_scans": 10,
+    "original_mean_confidence": 66.574,
+    "processed_mean_confidence": 66.686,
+    "original_total_cjk_chars": 3174,
+    "processed_total_cjk_chars": 3226,
+    "processed_cjk_wins": 8,
+    "mean_text_similarity": 0.8315
+  },
+  "decision": "Use processed page images for the main OCR pipeline.",
+  "caveat": "PaddleOCR still misrecognizes many historical Han/Nom characters; human correction remains required."
+}

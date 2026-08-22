@@ -1,0 +1,11 @@
+# Phiên bản cốt lõi đã dùng để chạy pipeline trên Linux x86_64, Python 3.10.20.
+numpy==2.2.6
+opencv-python-headless==5.0.0.93
+paddlepaddle==3.0.0
+paddleocr==3.7.0
+paddlex==3.7.2
+requests==2.34.2
+tenacity==9.1.2
+tqdm==4.68.4
+Pillow==10.2.0
+PyYAML==6.0.2

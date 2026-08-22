@@ -1,0 +1,8 @@
+name: NLP
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10.20
+  - pip=26.1.2
+  - pip:
+      - -r requirements.txt
