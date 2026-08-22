@@ -1,0 +1,33 @@
+# Secrets
+.env
+chrome_profile/
+scripts/client_secret.json
+scripts/token.json
+
+# Logs
+*.log
+
+# Generated image/OCR intermediates
+data/input/*
+!data/input/.gitkeep
+!data/input/link.txt
+data/processed/
+data/intermediate/
+data/output/
+models/
+
+# Local backups and experiments
+data/*_backup_*/
+data/experiments/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
