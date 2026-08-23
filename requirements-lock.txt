@@ -1,7 +1,7 @@
 # Phiên bản trực tiếp quan trọng của pipeline đã chạy thành công.
 numpy==2.2.6
 opencv-python-headless==5.0.0.93
-paddlepaddle==3.0.0
+paddlepaddle==3.3.1
 paddleocr==3.7.0
 paddlex==3.7.2
 requests==2.34.2
