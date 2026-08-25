@@ -113,6 +113,10 @@ def build_candidate_labels(
             handle.write(json.dumps(item, ensure_ascii=False) + "\n")
             written += 1
     os.replace(temp, labels_path)
+    try:
+        new_labels_display = labels_path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        new_labels_display = str(labels_path.resolve())
     summary = {
         "diff_records": len(records),
         "paddle_results": len(raw_rows),
@@ -122,7 +126,7 @@ def build_candidate_labels(
         "mean_paddle_confidence": round(sum(confidence_values) / len(confidence_values), 6)
         if confidence_values else 0.0,
         "model": "PP-OCRv6_medium_det + PP-OCRv6_medium_rec",
-        "new_labels": str(labels_path.resolve()),
+        "new_labels": new_labels_display,
     }
     write_json_atomic(output_dir / "summary.json", summary)
     return summary

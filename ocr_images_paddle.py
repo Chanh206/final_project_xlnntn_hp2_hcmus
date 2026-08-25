@@ -471,7 +471,13 @@ def compile_json_array(jsonl_path: Path, json_path: Path) -> int:
     results = [item for _, item in read_jsonl(jsonl_path)] if jsonl_path.is_file() else []
     json_path.parent.mkdir(parents=True, exist_ok=True)
     temp = json_path.with_suffix(json_path.suffix + ".tmp")
-    temp.write_text(json.dumps(results, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # JSON compact vẫn giữ nguyên toàn bộ dữ liệu nhưng tránh gần 50 MB
+    # khoảng trắng/thụt lề ở tập OCR lớn. JSONL tiếp tục được giữ riêng để
+    # hỗ trợ resume và xử lý streaming.
+    temp.write_text(
+        json.dumps(results, ensure_ascii=False, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
     temp.replace(json_path)
     return len(results)
 
