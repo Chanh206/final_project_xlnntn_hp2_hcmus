@@ -1,0 +1,10 @@
+{
+  "diff_records": 19452,
+  "paddle_results": 19452,
+  "candidate_labels_written": 19452,
+  "blank_proposals": 2162,
+  "missing_paddle_results": 0,
+  "mean_paddle_confidence": 0.6726,
+  "model": "PP-OCRv6_medium_det + PP-OCRv6_medium_rec",
+  "new_labels": "data/output/Gemini_diff_Label/paddle_v6/new_labels.jsonl"
+}
