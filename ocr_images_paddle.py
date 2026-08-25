@@ -144,8 +144,12 @@ def set_cpu_environment(cpu_threads: int, model_cache: str) -> None:
         "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "FLAGS_paddle_num_threads",
     ):
         os.environ[name] = value
-    os.environ["OMP_PROC_BIND"] = "spread"
-    os.environ["OMP_PLACES"] = "cores"
+    # Không bind OpenMP ở đây. Với nhiều process PP-OCRv6, libgomp có thể
+    # thu hẹp affinity của *mọi* worker vào cùng một core vật lý (ví dụ hai
+    # logical CPU 0,52), khiến workers tranh chấp nhau và chậm nghiêm trọng.
+    # Để Linux phân phối các thread trên toàn bộ CPU được phép.
+    os.environ.pop("OMP_PROC_BIND", None)
+    os.environ.pop("OMP_PLACES", None)
     os.environ["PADDLE_PDX_CACHE_HOME"] = model_cache
     os.environ["MPLCONFIGDIR"] = str(Path(model_cache) / "matplotlib")
     os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
@@ -501,7 +505,7 @@ def run_parallel(
     max_pending = max(args.workers, args.workers * args.max_pending_factor)
     context = mp.get_context("spawn")
 
-    with ProcessPoolExecutor(
+    executor = ProcessPoolExecutor(
         max_workers=args.workers,
         mp_context=context,
         initializer=init_worker,
@@ -514,56 +518,72 @@ def run_parallel(
             args.fallback_confidence,
             not args.no_preprocess_fallback,
         ),
-    ) as executor, args.output_jsonl.open("a", encoding="utf-8") as output, args.error_log.open(
-        "a", encoding="utf-8"
-    ) as error_output:
-        iterator = iter(tasks)
-        pending: dict[Any, dict[str, str]] = {}
+    )
+    interrupted = False
+    try:
+        with args.output_jsonl.open("a", encoding="utf-8") as output, args.error_log.open(
+            "a", encoding="utf-8"
+        ) as error_output:
+            iterator = iter(tasks)
+            pending: dict[Any, dict[str, str]] = {}
 
-        def submit_one() -> bool:
-            try:
-                task = next(iterator)
-            except StopIteration:
-                return False
-            pending[executor.submit(ocr_task, task)] = task
-            return True
-
-        while len(pending) < max_pending and submit_one():
-            pass
-
-        completed = 0
-        while pending:
-            done_futures, _ = wait(pending, return_when=FIRST_COMPLETED)
-            for future in done_futures:
-                task = pending.pop(future)
-                completed += 1
+            def submit_one() -> bool:
                 try:
-                    result = future.result()
-                except Exception as exc:
-                    result = {
-                        "ok": False,
-                        "id": task["id"],
-                        "image": task["image"],
-                        "error": f"WorkerError: {exc}",
-                    }
-                if result.pop("ok", False):
-                    region_count = len(result.get("paddle", []))
-                    output.write(json.dumps(result, ensure_ascii=False) + "\n")
-                    output.flush()
-                    if region_count:
-                        success += 1
-                        selected_variant = result.get("ocr_pipeline", {}).get("selected_variant", "original")
-                        status = f"OK {region_count} vùng [{selected_variant}]"
+                    task = next(iterator)
+                except StopIteration:
+                    return False
+                pending[executor.submit(ocr_task, task)] = task
+                return True
+
+            while len(pending) < max_pending and submit_one():
+                pass
+
+            completed = 0
+            while pending:
+                done_futures, _ = wait(pending, return_when=FIRST_COMPLETED)
+                for future in done_futures:
+                    task = pending.pop(future)
+                    completed += 1
+                    try:
+                        result = future.result()
+                    except Exception as exc:
+                        result = {
+                            "ok": False,
+                            "id": task["id"],
+                            "image": task["image"],
+                            "error": f"WorkerError: {exc}",
+                        }
+                    if result.pop("ok", False):
+                        region_count = len(result.get("paddle", []))
+                        output.write(json.dumps(result, ensure_ascii=False) + "\n")
+                        output.flush()
+                        if region_count:
+                            success += 1
+                            selected_variant = result.get("ocr_pipeline", {}).get("selected_variant", "original")
+                            status = f"OK {region_count} vùng [{selected_variant}]"
+                        else:
+                            blank += 1
+                            status = "BLANK"
                     else:
-                        blank += 1
-                        status = "BLANK"
-                else:
-                    errors += 1
-                    error_output.write(json.dumps(result, ensure_ascii=False) + "\n")
-                    error_output.flush()
-                    status = f"LỖI {result.get('error', '')}"
-                print(f"[{completed}/{total}] {task['image']} — {status}", flush=True)
-                submit_one()
+                        errors += 1
+                        error_output.write(json.dumps(result, ensure_ascii=False) + "\n")
+                        error_output.flush()
+                        status = f"LỖI {result.get('error', '')}"
+                    print(f"[{completed}/{total}] {task['image']} — {status}", flush=True)
+                    submit_one()
+    except KeyboardInterrupt:
+        interrupted = True
+        print("\nĐang dừng toàn bộ worker Paddle...", file=sys.stderr, flush=True)
+        # ProcessPoolExecutor mặc định chờ task đang chạy khi thoát context.
+        # Terminate rõ ràng để một lần Ctrl+C không để lại worker mồ côi.
+        for process in list(getattr(executor, "_processes", {}).values()):
+            if process.is_alive():
+                process.terminate()
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    finally:
+        if not interrupted:
+            executor.shutdown(wait=True)
     return success, blank, errors
 
 
