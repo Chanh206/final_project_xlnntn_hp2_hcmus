@@ -1,0 +1,21 @@
+{
+  "selected_posts": 29045,
+  "image_references": 69497,
+  "missing_local": 354,
+  "done": 0,
+  "scheduled": 69143,
+  "model": "gemini-3.5-flash-low",
+  "workers": 4,
+  "succeeded": 0,
+  "blank": 0,
+  "failed": 27,
+  "completed_this_run": 27,
+  "not_attempted_due_to_abort": 69116,
+  "elapsed_seconds": 1.03,
+  "images_per_second": 26.2011,
+  "usage": {},
+  "aborted_high_failure_rate": true,
+  "compiled_results": 0,
+  "output_jsonl": "/mnt/Suran_database/Users/thanhthanh_workspace/Project/NLP_K35/xlnntn_hp2_friend/data/mrDuc_data/facebook_posts_ocr.jsonl",
+  "error_log": "/mnt/Suran_database/Users/thanhthanh_workspace/Project/NLP_K35/xlnntn_hp2_friend/data/mrDuc_data/ocr_errors.jsonl"
+}

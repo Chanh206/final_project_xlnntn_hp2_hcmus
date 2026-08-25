@@ -1,0 +1,30 @@
+{
+  "gemini_records": 21482,
+  "classified": 21482,
+  "same": 2030,
+  "diff": 19452,
+  "same_percent": 9.45,
+  "diff_percent": 90.55,
+  "missing_label": 0,
+  "duplicate_images_skipped": 0,
+  "threshold": 0.58,
+  "min_common_han": 4,
+  "score_percentiles": {
+    "p10": 0.0,
+    "p25": 0.023965,
+    "p50": 0.089097,
+    "p75": 0.270304,
+    "p90": 0.529339
+  },
+  "reasons": {
+    "one_text_contains_the_other": 635,
+    "insufficient_textual_agreement": 16851,
+    "gemini_blank": 1942,
+    "high_directional_coverage": 1033,
+    "combined_score_above_threshold": 361,
+    "short_text_not_exact": 659,
+    "short_exact_match": 1
+  },
+  "this_group": "same",
+  "records": 2030
+}
