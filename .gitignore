@@ -15,7 +15,9 @@ data/processed/
 data/intermediate/
 data/output/
 models/
-data/mrDuc_data/
+# Chỉ commit input metadata cần để tái tạo pipeline; không commit ảnh/OCR lớn.
+data/mrDuc_data/*
+!data/mrDuc_data/valid.jsonl
 data_packages/
 *.tar.zst
 *.tmp
