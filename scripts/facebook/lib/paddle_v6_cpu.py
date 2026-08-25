@@ -15,9 +15,9 @@ tối/chữ sáng hoặc ``CLAHE`` cho chữ mờ trên nền tương đối đ�
 không dùng adaptive threshold. Kết quả ảnh gốc luôn được giữ làm baseline.
 
 Ví dụ:
-    python ocr_images_paddle.py --dry-run
-    python ocr_images_paddle.py --limit 3 --workers 1
-    python ocr_images_paddle.py
+    python scripts/facebook/lib/paddle_v6_cpu.py --dry-run
+    python scripts/facebook/lib/paddle_v6_cpu.py --limit 3 --workers 1
+    python scripts/facebook/lib/paddle_v6_cpu.py
 """
 
 from __future__ import annotations
@@ -35,12 +35,14 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_INPUT = SCRIPT_DIR / "facebook_posts_valid.jsonl"
-DEFAULT_IMAGES_DIR = SCRIPT_DIR / "images"
-DEFAULT_OUTPUT_JSONL = SCRIPT_DIR / "facebook_posts_ocr_paddle.jsonl"
-DEFAULT_OUTPUT_JSON = SCRIPT_DIR / "facebook_posts_ocr_paddle.json"
-DEFAULT_ERROR_LOG = SCRIPT_DIR / "facebook_posts_ocr_paddle_errors.jsonl"
+ROOT = Path(__file__).resolve().parents[3]
+DATA_DIR = ROOT / "data" / "mrDuc_data"
+DEFAULT_INPUT = DATA_DIR / "valid.jsonl"
+DEFAULT_IMAGES_DIR = DATA_DIR / "Images"
+DEFAULT_OUTPUT_DIR = ROOT / "data" / "output" / "PaddleV6_full"
+DEFAULT_OUTPUT_JSONL = DEFAULT_OUTPUT_DIR / "ocr_results.jsonl"
+DEFAULT_OUTPUT_JSON = DEFAULT_OUTPUT_DIR / "ocr_results.json"
+DEFAULT_ERROR_LOG = DEFAULT_OUTPUT_DIR / "ocr_errors.jsonl"
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp")
 
 _OCR: Any = None
@@ -111,7 +113,7 @@ def parse_args() -> argparse.Namespace:
         "--no-preprocess-fallback", action="store_true",
         help="Chỉ OCR original, không thử invert/CLAHE",
     )
-    parser.add_argument("--model-cache", type=Path, default=SCRIPT_DIR / "models" / "paddlex")
+    parser.add_argument("--model-cache", type=Path, default=ROOT / "models" / "paddlex")
     parser.add_argument(
         "--max-pending-factor", type=int, default=2,
         help="Số task chờ tối đa = workers × hệ số này (mặc định: 2)",

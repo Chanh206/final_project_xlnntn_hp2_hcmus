@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Chia OCR Gemini thành nhóm gần giống/không giống caption gốc.
 
-Không sao chép ảnh. Mỗi record giữ ``local_path`` để DeepSeek và PaddleOCR
-có thể đọc lại ảnh gốc ở các bước sau.
+Mặc định mỗi nhóm nhận bản sao vật lý của ảnh tương ứng trong ``Images`` để
+dataset tự chứa và đóng gói độc lập. Script không tạo symlink hoặc hardlink.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import shutil
 import sys
 import unicodedata
 from collections import Counter
@@ -21,7 +22,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "data" / "mrDuc_data"
 DEFAULT_LABELS = DATA_DIR / "valid.jsonl"
 DEFAULT_GEMINI = DATA_DIR / "facebook_posts_ocr.jsonl"
@@ -49,6 +50,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--threshold", type=float, default=0.58)
     parser.add_argument("--min-common-han", type=int, default=4)
     parser.add_argument("--limit", type=int, help="Chỉ phân tích N output Gemini đầu tiên")
+    parser.add_argument(
+        "--no-copy-images", action="store_true",
+        help="Không materialize ảnh vào hai nhóm (mặc định có sao chép file thật)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Tính thống kê, không ghi output")
     args = parser.parse_args()
     if not 0 <= args.threshold <= 1:
@@ -219,7 +224,7 @@ def main() -> int:
         rows = rows[: args.limit]
 
     outputs: dict[str, list[dict[str, Any]]] = {"same": [], "diff": []}
-    missing_label = duplicates = 0
+    missing_label = duplicates = missing_images = 0
     seen: set[str] = set()
     scores: list[float] = []
     reason_counts: Counter[str] = Counter()
@@ -239,12 +244,16 @@ def main() -> int:
         ocr_text = gemini_text(regions)
         metrics = compare_texts(label, ocr_text, args.threshold, args.min_common_han)
         group = metrics["classification"]
-        local_path = args.images_dir / Path(image_key).name
+        source_path = args.images_dir / Path(image_key).name
+        if not source_path.is_file() or source_path.is_symlink():
+            missing_images += 1
+        group_dir = args.same_dir if group == "same" else args.diff_dir
+        local_path = source_path if args.no_copy_images else group_dir / "Images" / source_path.name
         record = {
             "post_id": post_id,
             "image": image_key,
             "local_path": str(local_path.resolve()),
-            "image_exists": local_path.is_file(),
+            "image_exists": source_path.is_file(),
             "label": label,
             "label_core": caption_core(label),
             "gemini_text": ocr_text,
@@ -265,6 +274,8 @@ def main() -> int:
         "diff_percent": round(100 * len(outputs["diff"]) / max(1, len(scores)), 3),
         "missing_label": missing_label,
         "duplicate_images_skipped": duplicates,
+        "missing_or_symlink_source_images": missing_images,
+        "images_materialized": not args.no_copy_images,
         "threshold": args.threshold,
         "min_common_han": args.min_common_han,
         "score_percentiles": {
@@ -277,11 +288,27 @@ def main() -> int:
         "reasons": dict(reason_counts),
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+    if missing_images:
+        print(
+            f"LỖI: có {missing_images} ảnh nguồn bị thiếu hoặc là symlink; không tạo dataset",
+            file=sys.stderr,
+        )
+        return 2
     if args.dry_run:
         return 0
 
     for group, directory in (("same", args.same_dir), ("diff", args.diff_dir)):
         directory.mkdir(parents=True, exist_ok=True)
+        if not args.no_copy_images:
+            image_dir = directory / "Images"
+            image_dir.mkdir(parents=True, exist_ok=True)
+            for record in outputs[group]:
+                source = args.images_dir / Path(str(record["image"])).name
+                target = image_dir / source.name
+                if target.is_symlink():
+                    target.unlink()
+                if not target.is_file() or target.stat().st_size != source.stat().st_size:
+                    shutil.copy2(source, target, follow_symlinks=False)
         jsonl = directory / "records.jsonl"
         temp = jsonl.with_suffix(".jsonl.tmp")
         with temp.open("w", encoding="utf-8") as handle:

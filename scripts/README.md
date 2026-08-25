@@ -51,7 +51,7 @@ PaddleOCR local là engine mặc định. `.env` chỉ cần khi chạy
 Bước 4 hỗ trợ `--ocr-layout full-page` (mặc định) và `--ocr-layout columns`.
 Chế độ columns lưu crop cột phải sang trái trong thư mục run. Chạy hai run
 pilot riêng rồi đối chiếu bằng bước 5 với `--full-page-run` và `--columns-run`.
-Hướng dẫn đầy đủ xem `RUN_FROM_SCRATCH.md`.
+Hướng dẫn đầy đủ xem `docs/han_nom/RUN_FROM_SCRATCH.md`.
 
 ## Tạo output
 
