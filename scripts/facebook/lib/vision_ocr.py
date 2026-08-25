@@ -28,7 +28,7 @@ from PIL import Image, ImageOps
 from requests.adapters import HTTPAdapter
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = ROOT / "data" / "mrDuc_data"
 DEFAULT_INPUT = DATA_DIR / "valid.jsonl"
 DEFAULT_IMAGES_DIR = DATA_DIR / "Images"

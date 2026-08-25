@@ -1,4 +1,16 @@
-# Pipeline OCR và tách câu văn bản Hán–Nôm
+# NLP K35 — OCR Hán–Nôm và tạo ground truth ảnh Facebook
+
+Repository gồm hai flow độc lập, dùng chung môi trường Python nhưng không dùng
+chung dữ liệu hoặc output:
+
+| Flow | Code | Tài liệu vận hành |
+|---|---|---|
+| Hán–Nôm: tải scan → preprocessing → PaddleOCR → raw/seg → validator | `scripts/1_...py` đến `scripts/8_...py` | `scripts/README.md` và `docs/han_nom/` |
+| Facebook: fetch ảnh → Gemini OCR → chia same/diff → PP-OCRv6 → vision LLM adjudication | `scripts/facebook/` | `scripts/facebook/README.md` |
+
+Phần dưới mô tả chi tiết sản phẩm Hán–Nôm. Đối với pipeline Facebook đang xử
+lý, xem [hướng dẫn đầy đủ](scripts/facebook/README.md), trong đó có data
+contract, strict join, từng lệnh chạy, tham số và metric đánh giá.
 
 Project tải ảnh từ Nom Foundation Library, tách scan thành từng trang, phát
 hiện cột chữ dọc, OCR bằng PaddleOCR, ghép văn bản thô và tách câu theo dấu
@@ -29,9 +41,9 @@ final_output/
 | File | Nhiệm vụ | Điều kiện |
 |---|---|---|
 | `README.md` | Tài liệu chính: cài môi trường, chạy pipeline, xử lý lỗi và chuẩn bị GitHub | Bắt buộc |
-| `RUN_FROM_SCRATCH.md` | Danh sách lệnh ngắn để chạy lại pipeline từ đầu | Không bắt buộc, nên giữ để tra cứu nhanh |
-| `PREPROCESSING.md` | Giải thích thuật toán cắt viền, tách trang, biến thể ảnh và quality flags | Không bắt buộc, nên giữ cho báo cáo kỹ thuật |
-| `PIPELINE_AUDIT.md` | Ghi lại kết quả thử nghiệm và giới hạn của Paddle/LLM | Không bắt buộc, dùng để giải thích quyết định thiết kế |
+| `docs/han_nom/RUN_FROM_SCRATCH.md` | Danh sách lệnh ngắn để chạy lại pipeline Hán–Nôm | Không bắt buộc, nên giữ để tra cứu nhanh |
+| `docs/han_nom/PREPROCESSING.md` | Giải thích thuật toán cắt viền, tách trang, biến thể ảnh và quality flags | Không bắt buộc, nên giữ cho báo cáo kỹ thuật |
+| `docs/han_nom/PIPELINE_AUDIT.md` | Ghi lại kết quả thử nghiệm và giới hạn của Paddle/LLM | Không bắt buộc, dùng để giải thích quyết định thiết kế |
 | `.gitignore` | Ngăn Git upload API key, ảnh, model, cache và output sinh ra | Bắt buộc khi dùng Git/GitHub |
 | `.env.example` | Mẫu cấu hình API không chứa key thật | Bắt buộc nếu chia sẻ bước API/LLM |
 | `.env` | Chứa API key thật trên từng máy | Chỉ cần khi chạy API/LLM; tuyệt đối không commit |
@@ -56,10 +68,20 @@ final_output/
 | `scripts/7_check_output.py` | Kiểm tra UTF-8, ID câu, TSV và coverage | Bắt buộc trước khi nộp/chia sẻ output |
 | `scripts/8_llm_correct_segments.py` | Vision LLM hỗ trợ hiệu chỉnh và tách câu có guard | Không bắt buộc; cần API key hoặc Ollama |
 | `scripts/README.md` | Tóm tắt thứ tự và ví dụ gọi các script | Không bắt buộc, dùng để tra cứu nhanh |
+| `scripts/facebook/` | Pipeline 5 bước tạo ground truth ảnh Facebook | Bắt buộc cho giai đoạn Facebook |
+| `scripts/facebook/README.md` | Flow, cấu trúc, ràng buộc join, lệnh chạy, tham số và metric Facebook | Bắt buộc đọc trước khi chạy giai đoạn Facebook |
+| `data_packages/` | Archive dữ liệu để chuyển qua Google Drive | Dữ liệu local; tuyệt đối không commit và không đổi path khi đang tải |
 | `.git/` | Lịch sử, branch, index và remote của Git | Git tự quản lý; không chỉnh sửa thủ công |
 
 Các thư mục `__pycache__` và file `.pyc` do Python tự sinh, không thuộc mã
 nguồn và đã được `.gitignore` loại trừ.
+
+`images/`, `facebook_posts_valid.jsonl`, `facebook_posts_ocr.jsonl` và
+`image_ocr_output/` ở root là dữ liệu lịch sử đã được nhánh nhóm theo dõi từ
+trước. Pipeline Facebook mới không đọc các path này; nó chỉ dùng
+`data/mrDuc_data/` và `data/output/`. Không thêm dữ liệu mới vào các path
+legacy và không di chuyển/xóa hàng nghìn file đã track nếu chưa thống nhất với
+trưởng nhóm.
 
 ## 2. Pipeline
 
@@ -83,7 +105,7 @@ confidence Paddle trung bình 67,275% và 1.023 ký tự CJK, so với 66,213% v
 
 - Linux x86_64, CPU.
 - Python 3.10.20.
-- PaddlePaddle 3.0.0.
+- PaddlePaddle 3.3.1.
 - PaddleOCR 3.7.0.
 - PaddleX 3.7.2.
 - NumPy 2.2.6.
@@ -173,7 +195,17 @@ git grep -n "OCR_API_KEY=" -- ':!.env.example' || true
 │   ├── 5_compare_ocr.py
 │   ├── 6_build_outputs.py
 │   ├── 7_check_output.py
-│   └── 8_llm_correct_segments.py
+│   ├── 8_llm_correct_segments.py
+│   └── facebook/
+│       ├── 1_fetch_images.py
+│       ├── 2_ocr_gemini.py
+│       ├── 3_compare_gemini_label.py
+│       ├── 4_paddlev6_relabel_diff.py
+│       ├── 5_llm_adjudicate_ground_truth.py
+│       ├── lib/
+│       └── experiments/
+├── docs/han_nom/
+├── data_packages/      # local/Google Drive, không commit
 ├── environment.yml
 ├── requirements.txt
 └── requirements-lock.txt
@@ -371,7 +403,7 @@ Chỉ nộp khi kết quả là `ĐẠT TOÀN BỘ: 32 folder, 1994 ảnh`.
 
 Quy trình đầy đủ gồm làm sạch, kiểm tra 1.994 ảnh, preprocess, pilot, OCR,
 build theo từng ảnh và validate được trình bày trong
-[`RUN_FROM_SCRATCH.md`](RUN_FROM_SCRATCH.md). Hãy dùng các vòng lặp trong tài
+[`RUN_FROM_SCRATCH.md`](docs/han_nom/RUN_FROM_SCRATCH.md). Hãy dùng các vòng lặp trong tài
 liệu đó; mỗi bước dừng ngay tại folder lỗi và có kiểm tra số lượng trước khi
 chuyển sang bước tiếp theo.
 
@@ -509,7 +541,8 @@ Không dùng `git add -f .env` và không commit API key.
 
 ## 13. Tài liệu bổ sung
 
-- [Hướng dẫn chạy lại](RUN_FROM_SCRATCH.md)
-- [Chi tiết preprocessing](PREPROCESSING.md)
-- [Báo cáo pipeline](PIPELINE_AUDIT.md)
+- [Hướng dẫn chạy lại Hán–Nôm](docs/han_nom/RUN_FROM_SCRATCH.md)
+- [Chi tiết preprocessing Hán–Nôm](docs/han_nom/PREPROCESSING.md)
+- [Báo cáo pipeline Hán–Nôm](docs/han_nom/PIPELINE_AUDIT.md)
+- [Pipeline Facebook ground truth](scripts/facebook/README.md)
 - [Thứ tự script](scripts/README.md)

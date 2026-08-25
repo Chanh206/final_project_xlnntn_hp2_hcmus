@@ -15,10 +15,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Iterable
 
-import ocr_images_paddle as paddle_base
+from lib import paddle_v6_cpu as paddle_base
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_INPUT = ROOT / "data" / "output" / "Gemini_diff_Label" / "records.jsonl"
 DEFAULT_OUTPUT_DIR = ROOT / "data" / "output" / "Gemini_diff_Label" / "paddle_v6"
 
@@ -135,7 +135,11 @@ def build_candidate_labels(
 def main() -> int:
     args = parse_args()
     if not args.input.is_file():
-        print(f"LỖI: chưa có nhóm diff: {args.input}. Hãy chạy 3_compare_gemini_label.py trước.", file=sys.stderr)
+        print(
+            f"LỖI: chưa có nhóm diff: {args.input}. "
+            "Hãy chạy scripts/facebook/3_compare_gemini_label.py trước.",
+            file=sys.stderr,
+        )
         return 2
     records = list(read_jsonl(args.input))
     args.output_dir.mkdir(parents=True, exist_ok=True)

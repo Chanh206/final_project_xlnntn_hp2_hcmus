@@ -15,6 +15,14 @@ data/processed/
 data/intermediate/
 data/output/
 models/
+data/mrDuc_data/
+data_packages/
+*.tar.zst
+*.tmp
+
+# Legacy/local Facebook datasets already exist on some clones. New files in
+# these locations must not be added; source code now lives in scripts/facebook.
+Ground_truth/
 
 # Local backups and experiments
 data/*_backup_*/

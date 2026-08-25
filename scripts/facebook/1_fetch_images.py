@@ -11,9 +11,9 @@ thành công, nên có thể chạy lại để resume mà không làm hỏng ou
 
 Ví dụ::
 
-    python scripts/2.fetch_images.py --dry-run
-    python scripts/2.fetch_images.py --limit 20 --workers 8
-    python scripts/2.fetch_images.py --workers 24
+    python scripts/facebook/1_fetch_images.py --dry-run
+    python scripts/facebook/1_fetch_images.py --limit 20 --workers 8
+    python scripts/facebook/1_fetch_images.py --workers 24
 """
 
 from __future__ import annotations
@@ -37,8 +37,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from requests.adapters import HTTPAdapter
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = SCRIPT_DIR.parent
+PROJECT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_INPUT = PROJECT_DIR / "data" / "mrDuc_data" / "valid.jsonl"
 DEFAULT_IMAGES_DIR = PROJECT_DIR / "data" / "mrDuc_data" / "Images"
 DEFAULT_ERROR_LOG = PROJECT_DIR / "data" / "mrDuc_data" / "fetch_errors.jsonl"
