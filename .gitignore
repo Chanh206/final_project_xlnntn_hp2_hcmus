@@ -7,28 +7,47 @@ scripts/token.json
 # Logs
 *.log
 
-# Generated image/OCR intermediates
+# ── Data: bỏ qua tất cả, trừ những gì khai báo rõ bên dưới ────────────────
+# Thư mục ảnh thô (69 K file, không commit)
+data/input/Images/
+
+# Metadata đầu vào cần để tái tạo pipeline
 data/input/*
 !data/input/.gitkeep
 !data/input/link.txt
+
+# Kết quả trung gian và output tổng quát (không commit)
 data/processed/
 data/intermediate/
 data/output/
-models/
-# Chỉ commit input metadata cần để tái tạo pipeline; không commit ảnh/OCR lớn.
+
+# ── Ngoại lệ trong data/output: file ground truth cuối ────────────────────
+!data/output/
+!data/output/DeepSeek_ground_truth/
+!data/output/DeepSeek_ground_truth/ground_truth.jsonl
+!data/output/DeepSeek_ground_truth/adjudications_valid.jsonl
+
+# ── Ảnh ground truth (copy từ input bằng copy_ground_truth_images.py) ─────
+# data/ground_truth_images/ KHÔNG bị ignore → được commit bình thường
+
+# Thư mục mrDuc thô
 data/mrDuc_data/*
 !data/mrDuc_data/valid.jsonl
 data_packages/
 *.tar.zst
 *.tmp
 
-# Legacy/local Facebook datasets already exist on some clones. New files in
-# these locations must not be added; source code now lives in scripts/facebook.
+# Legacy
 Ground_truth/
+legacy/images/
 
-# Local backups and experiments
+# Ảnh thô tại root (đã move sang legacy/images/, không track lại)
+images/
+
+# Local backups và experiments
 data/*_backup_*/
 data/experiments/
+models/
 
 # Python
 __pycache__/

@@ -31,6 +31,11 @@ from requests.adapters import HTTPAdapter
 
 from lib import vision_ocr as api_base
 
+# Windows: stdout/stderr mặc định dùng cp1252, không hiển thị tiếng Việt.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data" / "mrDuc_data"
@@ -39,7 +44,7 @@ DEFAULT_LABELS = DATA / "valid.jsonl"
 DEFAULT_GEMINI = DATA / "facebook_posts_ocr.jsonl"
 DEFAULT_DIFF = DIFF / "records.jsonl"
 DEFAULT_PADDLE = DIFF / "paddle_v6" / "new_labels.jsonl"
-DEFAULT_IMAGES = DATA / "Images"
+DEFAULT_IMAGES = ROOT / "data" / "input" / "Images"
 DEFAULT_OUTPUT_DIRS = {
     "deepseek": ROOT / "data" / "output" / "DeepSeek_ground_truth",
     "qwen": ROOT / "data" / "output" / "Qwen38_ground_truth",
@@ -47,11 +52,11 @@ DEFAULT_OUTPUT_DIRS = {
 DEFAULT_ENV = ROOT / ".env"
 
 ENV_KEYS = {
-    "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "DEEPSEEK_MODEL",
-    "QWEN_API_KEY", "QWEN_BASE_URL", "QWEN_MODEL",
+    "DEEPSEEK_API_KEY", "DEEPSEEK_API_KEYS", "DEEPSEEK_BASE_URL", "DEEPSEEK_MODEL",
+    "QWEN_API_KEY", "QWEN_API_KEYS", "QWEN_BASE_URL", "QWEN_MODEL",
     "OCR_API_KEY", "OCR_BASE_URL",
 }
-RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
+RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504, 524}  # 524: Cloudflare upstream timeout
 SELECTED_SOURCES = {"caption", "gemini", "paddle_v6", "merged", "blank", "uncertain"}
 CAPTION_RELATIONS = {
     "exact_transcription", "partial_transcription", "description",
@@ -100,14 +105,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV)
     parser.add_argument("--base-url", help="Ghi đè BASE_URL của provider")
     parser.add_argument("--model", help="Ghi đè tên model của provider")
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=18)
     parser.add_argument("--retries", type=int, default=4)
     parser.add_argument("--timeout", type=float, default=240.0)
-    parser.add_argument("--max-tokens", type=int, default=1200)
+    parser.add_argument("--max-tokens", type=int, default=16000)
     parser.add_argument("--max-side", type=int, default=1800)
     parser.add_argument("--max-upload-mb", type=float, default=8.0)
     parser.add_argument("--jpeg-quality", type=int, default=90)
     parser.add_argument("--limit", type=int, help="Chỉ xử lý N ảnh chưa hoàn thành")
+    parser.add_argument("--offset", type=int, default=0, help="Bỏ qua N record đầu của diff (dùng khi chia shard)")
+    parser.add_argument("--api-key", help="Ghi đè API key của provider")
+    parser.add_argument(
+        "--api-keys",
+        help="Nhiều API key cách nhau dấu phẩy (ưu tiên hơn --api-key). "
+             "Mỗi key nhận workers/N request đồng thời theo round-robin.",
+    )
+    parser.add_argument(
+        "--base-urls",
+        help="Nhiều base URL cách nhau dấu phẩy, tương ứng với --api-keys. "
+             "Để trống: tất cả key dùng chung --base-url.",
+    )
     parser.add_argument("--report-every", type=int, default=10)
     parser.add_argument("--max-fail-rate", type=float, default=0.25)
     parser.add_argument("--fail-rate-min-samples", type=int, default=20)
@@ -118,8 +135,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.output_dir is None:
         args.output_dir = DEFAULT_OUTPUT_DIRS[args.provider]
-    if not 1 <= args.workers <= 32:
-        parser.error("--workers phải nằm trong 1..32")
+    if not 1 <= args.workers <= 128:
+        parser.error("--workers phải nằm trong 1..128")
     if args.retries < 1 or args.timeout <= 0 or args.max_tokens < 1:
         parser.error("retries/timeout/max-tokens không hợp lệ")
     if args.limit is not None and args.limit < 1:
@@ -164,7 +181,7 @@ def load_env(path: Path) -> None:
 def provider_config(args: argparse.Namespace) -> tuple[str, str, str]:
     """Đọc cấu hình riêng theo provider, rồi mới fallback về cấu hình OCR chung."""
     prefix = args.provider.upper()
-    key = os.environ.get(f"{prefix}_API_KEY") or os.environ.get("OCR_API_KEY", "")
+    key = args.api_key or os.environ.get(f"{prefix}_API_KEY") or os.environ.get("OCR_API_KEY", "")
     base_url = (
         args.base_url
         or os.environ.get(f"{prefix}_BASE_URL")
@@ -287,11 +304,15 @@ def build_tasks(args: argparse.Namespace, done: dict[str, str]) -> tuple[list[Ta
     gemini = index_unique_strict(args.gemini, "image", "Gemini OCR")
     paddle = index_unique_strict(args.paddle, "image", "PaddleV6")
     diff_rows = list(read_jsonl(args.diff))
+    total_diff = len(diff_rows)
+    if args.offset:
+        diff_rows = diff_rows[args.offset:]
     diff_images: set[str] = set()
     tasks: list[Task] = []
     stats = {
         "join_policy": "exact_image_key_and_post_id_fail_closed",
-        "diff_records": len(diff_rows), "valid_image_keys": len(valid_images),
+        "diff_records": total_diff, "shard_offset": args.offset, "shard_size": len(diff_rows),
+        "valid_image_keys": len(valid_images),
         "gemini_records": len(gemini), "paddle_records": len(paddle),
         "strict_join_validated": 0, "done": 0,
     }
@@ -363,10 +384,12 @@ def build_tasks(args: argparse.Namespace, done: dict[str, str]) -> tuple[list[Ta
             consistency=consistency,
             join_fingerprint=fingerprint,
         ))
-    if set(paddle) != diff_images:
-        missing = sorted(diff_images - set(paddle))[:3]
+    missing = diff_images - set(paddle)
+    if missing:
+        raise ValueError(f"PaddleV6 thiếu image cho shard này; missing={sorted(missing)[:3]}")
+    if not args.offset and args.limit is None and set(paddle) != diff_images:
         extra = sorted(set(paddle) - diff_images)[:3]
-        raise ValueError(f"PaddleV6 và Gemini_diff không cùng tập image; missing={missing}, extra={extra}")
+        raise ValueError(f"PaddleV6 có image thừa so với Gemini_diff; extra={extra}")
     if args.limit is not None:
         tasks = tasks[: args.limit]
     return tasks, stats
@@ -572,7 +595,7 @@ def call_task(task: Task, args: argparse.Namespace, endpoint: str, key: str, mod
             except ValueError as exc:
                 if "finish_reason='length'" in str(exc) and attempt < args.retries:
                     current_limit = int(payload["max_tokens"])
-                    next_limit = min(8192, current_limit * 2)
+                    next_limit = min(65536, current_limit * 2)
                     last_error = f"{type(exc).__name__}: {exc}"
                     if next_limit > current_limit:
                         payload["max_tokens"] = next_limit
@@ -660,7 +683,7 @@ def compact_error_log(error_path: Path, successful_images: set[str]) -> int:
     return len(latest)
 
 
-def run(tasks: list[Task], args: argparse.Namespace, endpoint: str, key: str, model: str) -> dict[str, Any]:
+def run(tasks: list[Task], args: argparse.Namespace, key_pool: list[tuple[str, str]], model: str) -> dict[str, Any]:
     output_jsonl = args.output_dir / "adjudications.jsonl"
     error_log = args.output_dir / "errors.jsonl"
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -670,6 +693,16 @@ def run(tasks: list[Task], args: argparse.Namespace, endpoint: str, key: str, mo
     started = time.monotonic()
     max_pending = args.workers * 2
     executor = ThreadPoolExecutor(max_workers=args.workers, thread_name_prefix=args.provider)
+    pool_counter = 0
+    pool_lock = threading.Lock()
+
+    def next_credentials() -> tuple[str, str]:
+        nonlocal pool_counter
+        with pool_lock:
+            pair = key_pool[pool_counter % len(key_pool)]
+            pool_counter += 1
+            return pair
+
     try:
         with output_jsonl.open("a", encoding="utf-8") as output, error_log.open("a", encoding="utf-8") as errors:
             iterator = iter(tasks)
@@ -680,7 +713,8 @@ def run(tasks: list[Task], args: argparse.Namespace, endpoint: str, key: str, mo
                     task = next(iterator)
                 except StopIteration:
                     return False
-                pending[executor.submit(call_task, task, args, endpoint, key, model)] = task
+                cred_key, cred_endpoint = next_credentials()
+                pending[executor.submit(call_task, task, args, cred_endpoint, cred_key, model)] = task
                 return True
 
             while len(pending) < max_pending and submit_one():
@@ -776,8 +810,9 @@ def main() -> int:
         }, ensure_ascii=False))
     if args.dry_run:
         return 0
-    if not key or not base_url or not model:
-        prefix = args.provider.upper()
+    prefix = args.provider.upper()
+    multi_keys_str = args.api_keys or os.environ.get(f"{prefix}_API_KEYS", "")
+    if not (key or multi_keys_str) or not base_url or not model:
         print(
             f"LỖI: cần {prefix}_MODEL và API key/base URL. Có thể tái sử dụng "
             f"OCR_API_KEY/OCR_BASE_URL hoặc đặt {prefix}_API_KEY/{prefix}_BASE_URL.",
@@ -789,7 +824,21 @@ def main() -> int:
         print(f"Không còn task; JSON có {compiled} kết quả.")
         return 0
 
-    run_stats = run(tasks, args, api_endpoint(base_url), key, model)
+    if multi_keys_str:
+        raw_keys = [k.strip() for k in multi_keys_str.split(",") if k.strip()]
+        raw_urls = [u.strip() for u in (args.base_urls or os.environ.get(f"{prefix}_BASE_URLS", "")).split(",") if u.strip()]
+        if not raw_urls:
+            raw_urls = [base_url] * len(raw_keys)
+        elif len(raw_urls) == 1:
+            raw_urls = raw_urls * len(raw_keys)
+        if len(raw_keys) != len(raw_urls):
+            print("LỖI: số API key và base URL không khớp", file=sys.stderr)
+            return 2
+        key_pool = [(k, api_endpoint(u)) for k, u in zip(raw_keys, raw_urls)]
+        print(f"Key pool: {len(key_pool)} API key(s), ~{args.workers // len(key_pool)} worker/key")
+    else:
+        key_pool = [(key, api_endpoint(base_url))]
+    run_stats = run(tasks, args, key_pool, model)
     compiled = compile_json(output_jsonl, args.output_dir / "adjudications.json")
     unresolved_errors = compact_error_log(
         args.output_dir / "errors.jsonl",
