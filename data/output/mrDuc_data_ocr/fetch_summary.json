@@ -1,0 +1,22 @@
+{
+  "input": "/mnt/Suran_database/Users/thanhthanh_workspace/Project/NLP_K35/xlnntn_hp2_friend/data/mrDuc_data/valid.jsonl",
+  "images_dir": "/mnt/Suran_database/Users/thanhthanh_workspace/Project/NLP_K35/xlnntn_hp2_friend/data/mrDuc_data/Images",
+  "workers": 24,
+  "retries": 4,
+  "total_posts": 29045,
+  "selected_posts": 29045,
+  "image_references": 69497,
+  "already_complete": 0,
+  "invalid_urls": 0,
+  "scheduled": 69497,
+  "downloaded": 69143,
+  "failed": 354,
+  "completed_this_run": 69497,
+  "not_attempted_due_to_abort": 0,
+  "bytes_written": 8270730468,
+  "gib_written": 7.7027,
+  "elapsed_seconds": 1356.728,
+  "images_per_second": 51.224,
+  "aborted_high_failure_rate": false,
+  "error_log": "/mnt/Suran_database/Users/thanhthanh_workspace/Project/NLP_K35/xlnntn_hp2_friend/data/mrDuc_data/fetch_errors.jsonl"
+}

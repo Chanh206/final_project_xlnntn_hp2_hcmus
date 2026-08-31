@@ -28,7 +28,8 @@ data/output/
 !data/output/DeepSeek_ground_truth/adjudications_valid.jsonl
 
 # ── Ảnh ground truth (copy từ input bằng copy_ground_truth_images.py) ─────
-# data/ground_truth_images/ KHÔNG bị ignore → được commit bình thường
+# Không commit ảnh (~1.3 GB); tái tạo bằng: python scripts/copy_ground_truth_images.py
+data/ground_truth_images/
 
 # Thư mục mrDuc thô
 data/mrDuc_data/*
