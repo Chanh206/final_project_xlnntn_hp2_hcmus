@@ -33,24 +33,6 @@ data/input/valid.jsonl
                       └─ new_labels.jsonl
 
 Chạy mọi lệnh từ thư mục gốc repository.
-
-## 1. Cấu trúc code
-
-```text
-scripts/
-├── 1_fetch_images.py               Tải và kiểm tra ảnh từ valid.jsonl; resume và retry
-├── 2_ocr_gemini.py                 Entry point OCR bằng vision API (OpenAI-compatible)
-├── 3_compare_gemini_label.py       Tính metric, chia same/diff, materialize ảnh
-├── 4_paddlev6_relabel_diff.py      OCR lại nhóm diff bằng PP-OCRv6 CPU
-├── 5_llm_adjudicate_ground_truth.py  Join bốn nguồn, nhờ vision LLM chọn ground truth
-├── 6_ground_truth.py               Tổng hợp ground_truth.jsonl từ adjudications_valid
-├── split_adjudications.py          Tách adjudications.jsonl → valid / invalid
-├── copy_ground_truth_images.py     Copy ảnh có ground truth vào ground_truth_images/
-├── lib/
-│   ├── vision_ocr.py               Engine API: resize, resume, retry, JSON validation
-│   └── paddle_v6_cpu.py            Engine PP-OCRv6 CPU: baseline + fallback invert/CLAHE
-└── experiments/
-    └── compare_paddle_preprocessing.py  Đối chứng preprocessing trên mẫu phân tầng
 ```
 
 ## Stage 2: Multi-source Adjudication & Ground Truth
@@ -94,6 +76,25 @@ Bước 8: Copy ảnh ground truth
               ↓
 data/ground_truth_images/
 ```
+## 1. Cấu trúc code
+
+```text
+scripts/
+├── 1_fetch_images.py               Tải và kiểm tra ảnh từ valid.jsonl; resume và retry
+├── 2_ocr_gemini.py                 Entry point OCR bằng vision API (OpenAI-compatible)
+├── 3_compare_gemini_label.py       Tính metric, chia same/diff, materialize ảnh
+├── 4_paddlev6_relabel_diff.py      OCR lại nhóm diff bằng PP-OCRv6 CPU
+├── 5_llm_adjudicate_ground_truth.py  Join bốn nguồn, nhờ vision LLM chọn ground truth
+├── 6_ground_truth.py               Tổng hợp ground_truth.jsonl từ adjudications_valid
+├── split_adjudications.py          Tách adjudications.jsonl → valid / invalid
+├── copy_ground_truth_images.py     Copy ảnh có ground truth vào ground_truth_images/
+├── lib/
+│   ├── vision_ocr.py               Engine API: resize, resume, retry, JSON validation
+│   └── paddle_v6_cpu.py            Engine PP-OCRv6 CPU: baseline + fallback invert/CLAHE
+└── experiments/
+    └── compare_paddle_preprocessing.py  Đối chứng preprocessing trên mẫu phân tầng
+```
+
 ## 2. Cấu trúc dữ liệu
 
 ```text
