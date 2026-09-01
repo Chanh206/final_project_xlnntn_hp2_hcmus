@@ -1,7 +1,7 @@
 # Pipeline tạo ground truth ảnh Facebook
 
 Pipeline này tạo ground truth đề xuất cho ảnh Facebook (chữ Hán thư pháp/viết tay)
-từ bốn nguồn bằng một flow có kiểm soát:
+từ ba nguồn bằng một flow có kiểm soát:
 
 ## Stage 1: OCR & Candidate Generation
 
@@ -84,7 +84,7 @@ scripts/
 ├── 2_ocr_gemini.py                 Entry point OCR bằng vision API (OpenAI-compatible)
 ├── 3_compare_gemini_label.py       Tính metric, chia same/diff, materialize ảnh
 ├── 4_paddlev6_relabel_diff.py      OCR lại nhóm diff bằng PP-OCRv6 CPU
-├── 5_llm_adjudicate_ground_truth.py  Join bốn nguồn, nhờ vision LLM chọn ground truth
+├── 5_llm_adjudicate_ground_truth.py  Join ba nguồn, nhờ vision LLM chọn ground truth
 ├── 6_ground_truth.py               Tổng hợp ground_truth.jsonl từ adjudications_valid
 ├── split_adjudications.py          Tách adjudications.jsonl → valid / invalid
 ├── copy_ground_truth_images.py     Copy ảnh có ground truth vào ground_truth_images/
