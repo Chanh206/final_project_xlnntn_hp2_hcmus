@@ -3,28 +3,34 @@
 Pipeline này tạo ground truth đề xuất cho ảnh Facebook (chữ Hán thư pháp/viết tay)
 từ bốn nguồn bằng một flow có kiểm soát:
 
+## Stage 1: OCR & Candidate Generation
+
 ```text
 data/input/valid.jsonl
   ├─ caption gốc
   └─ URL ảnh
-       ↓ bước 1: fetch
-data/input/Images/
-       ↓ bước 2: Gemini vision OCR
-data/output/mrDuc_data_ocr/facebook_posts_ocr.jsonl
-       ↓ bước 3: so sánh caption ↔ Gemini
-       ├─ data/output/Gemini_same_Label/   (record + ảnh)
-       └─ data/output/Gemini_diff_Label/   (record + ảnh)
-              ↓ bước 4: PP-OCRv6 CPU
-          data/output/Gemini_diff_Label/paddle_v6/new_labels.jsonl
-              ↓ bước 5: strict join + vision LLM adjudication
-          data/output/DeepSeek_ground_truth/adjudications.jsonl
-              ↓ bước 6: lọc valid/invalid
-          adjudications_valid.jsonl / adjudications_invalid.jsonl
-              ↓ bước 7: tổng hợp ground truth
-          data/output/DeepSeek_ground_truth/ground_truth.jsonl
-              ↓ bước 8: copy ảnh ground truth
-          data/ground_truth_images/
-```
+       │
+       ├─ Bước 1: Fetch ảnh
+       │      ↓
+       │   data/input/Images/
+       │      │
+       │      └─ Bước 2: Gemini Vision OCR
+       │             ↓
+       │   data/output/mrDuc_data_ocr/
+       │   └─ facebook_posts_ocr.jsonl
+       │
+       └─ Bước 3: So sánh caption ↔ Gemini
+              ├─ data/output/Gemini_same_Label/
+              │    └─ record + ảnh
+              │
+              └─ data/output/Gemini_diff_Label/
+                   └─ record + ảnh
+                        ↓
+                   Bước 4: PP-OCRv6 CPU
+                        ↓
+                   data/output/Gemini_diff_Label/
+                   └─ paddle_v6/
+                      └─ new_labels.jsonl
 
 Chạy mọi lệnh từ thư mục gốc repository.
 
@@ -47,6 +53,47 @@ scripts/
     └── compare_paddle_preprocessing.py  Đối chứng preprocessing trên mẫu phân tầng
 ```
 
+## Stage 2: Multi-source Adjudication & Ground Truth
+```text
+Input sources:
+
+1. data/input/valid.jsonl
+   ├─ Original image
+   └─ Original caption
+
+2. data/output/mrDuc_data_ocr/facebook_posts_ocr.jsonl
+   └─ Gemini OCR
+
+3. data/output/Gemini_diff_Label/paddle_v6/new_labels.jsonl
+   └─ PP-OCRv6 OCR
+
+
+Original Image
+     +
+Original Caption
+     +
+Gemini OCR
+     +
+PP-OCRv6 OCR
+     ↓
+Bước 5: Strict Join by image/post_id
+     ↓
+Vision LLM Adjudication (DeepSeek)
+     ↓
+data/output/DeepSeek_ground_truth/adjudications.jsonl
+     ↓
+Bước 6: Lọc valid / invalid
+     ├─ adjudications_valid.jsonl
+     └─ adjudications_invalid.jsonl
+              ↓
+Bước 7: Tổng hợp ground truth
+              ↓
+data/output/DeepSeek_ground_truth/ground_truth.jsonl
+              ↓
+Bước 8: Copy ảnh ground truth
+              ↓
+data/ground_truth_images/
+```
 ## 2. Cấu trúc dữ liệu
 
 ```text
